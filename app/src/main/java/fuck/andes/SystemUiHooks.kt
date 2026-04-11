@@ -100,7 +100,11 @@ internal object SystemUiHooks {
             logger.debug("SystemUI: 已触发 Circle to Search")
             true
         }.getOrElse { throwable ->
-            logger.error("SystemUI: 触发 Circle to Search 失败，回退原 OCR 逻辑", throwable)
+            logger.errorThrottled(
+                "systemui_cts_trigger_failed",
+                "SystemUI: 触发 Circle to Search 失败，回退原 OCR 逻辑",
+                throwable
+            )
             false
         }
     }

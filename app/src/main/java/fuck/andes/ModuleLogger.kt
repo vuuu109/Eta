@@ -39,6 +39,16 @@ internal class ModuleLogger(private val module: XposedModule) {
         }
     }
 
+    fun errorThrottled(
+        key: String,
+        message: String,
+        throwable: Throwable? = null,
+        windowMs: Long = ModuleConfig.HOT_PATH_LOG_WINDOW_MS
+    ) {
+        if (!shouldLog(key, windowMs)) return
+        error(message, throwable)
+    }
+
     private fun shouldLog(key: String, windowMs: Long): Boolean {
         val now = SystemClock.uptimeMillis()
         val previous = throttledLogs[key]
