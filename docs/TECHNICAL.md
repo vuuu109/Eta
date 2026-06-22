@@ -24,6 +24,19 @@
 
 锁屏唤起 Gemini 浮窗后，Google 偶发只显示输入框、不启动录音。模块优先直接 Hook `FloatyActivity.onResume()`，找不到目标类时才回退到全局 `Activity.onResume()`；确认仍处于锁屏后，带冷却地补发一次 `ACTION_VOICE_COMMAND`，避免用户还要手动点麦克风。
 
+## Google App 系统化
+
+Google App 作为普通用户应用时，缺乏语音唤醒所需的系统权限，且容易 ColorOS 被自启管理杀掉。模块内置了 Magisk/KernelSU 模块，可将 Google App 安装为系统 priv-app。
+
+安装流程由 `GoogleAppSystemizerInstaller` 负责：
+
+- 检测 root 管理器类型（Magisk 或 KernelSU）
+- KernelSU 需先安装 meta-overlayfs 模块，否则不支持模块安装
+- 将内置的 Google App 系统化模块通过 root 执行安装
+- 安装成功后提示用户重启生效
+
+系统化安装是用户主动操作，不自动执行。安装入口位于设置页「高级」分组，点击后弹窗确认说明原因与操作方式，用户确认后才开始安装。
+
 ## 配置与实时生效
 
 模块 UI 基于 Miuix 0.9.2。配置链路如下：
