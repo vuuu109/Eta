@@ -88,7 +88,7 @@ private fun ExpandedCard(
                 }
                 Spacer(modifier = Modifier.width(10.dp))
                 Text(
-                    text = "小布 Agent",
+                    text = "Agent",
                     modifier = Modifier.weight(1f),
                     color = MiuixTheme.colorScheme.onSurfaceContainer,
                     fontSize = MiuixTheme.textStyles.title3.fontSize,

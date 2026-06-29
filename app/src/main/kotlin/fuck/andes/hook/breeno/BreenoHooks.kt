@@ -12,9 +12,11 @@ import android.os.Looper
 import fuck.andes.config.Prefs
 import io.github.libxposed.api.XposedModule
 import java.lang.reflect.Method
+import java.lang.reflect.Proxy
 import java.util.UUID
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.Executors
+import java.util.concurrent.atomic.AtomicBoolean
 import org.json.JSONArray
 import org.json.JSONObject
 
@@ -32,19 +34,34 @@ internal object BreenoHooks {
     private const val DIRECTIVE_PAYLOAD_CLASS = "com.heytap.speech.engine.protocol.directive.DirectivePayload"
     private const val STREAM_TEXT_CARD_CLASS =
         "com.heytap.speech.engine.protocol.directive.myai.StreamTextCard"
+    private const val AI_CHAT_REPOSITORY_CLASS =
+        "com.heytap.speechassist.aichat.repository.AIChatRepository"
+    private const val AI_CHAT_ROOM_ID_MANAGER_CLASS =
+        "com.heytap.speechassist.aichat.AIChatRoomIdManager"
+    private const val INSERT_RECORD_CLASS =
+        "com.heytap.speechassist.aichat.repository.api.InsertRecord"
+    private const val KOTLIN_FUNCTION1_CLASS = "kotlin.jvm.functions.Function1"
+    private const val KOTLIN_UNIT_CLASS = "kotlin.Unit"
     private const val EXPERIMENTAL_PREFIX = "/agent "
     private const val EXPERIMENTAL_ADB_PREFIX = "/agent%20"
+    private const val BREENO_HANDOFF_SOURCE = "breeno"
+    private const val BREENO_DEFAULT_AGENT_NAME = "default"
+    private const val RECORD_TYPE_QUERY = "Q"
+    private const val RECORD_TYPE_ANSWER = "A"
     private const val MAX_TEXT_CHARS = 240
     private const val RAW_LOG_CHUNK_CHARS = 3_200
     private val modelExecutor = Executors.newSingleThreadExecutor { runnable ->
         Thread(runnable, "FuckAndes-AgentBridge").apply { isDaemon = true }
     }
     private val cdmImageCache = ConcurrentHashMap<String, List<AgentModelClient.ModelImage>>()
+    private val deliveredRunIds = ConcurrentHashMap.newKeySet<String>()
+    private val pendingDrainRunning = AtomicBoolean(false)
 
     fun install(module: XposedModule, logger: ModuleLogger, classLoader: ClassLoader) {
         hookOutboundMessage(module, logger, classLoader)
         hookInboundMessage(module, logger, classLoader)
         hookCdmTextRequest(module, logger, classLoader)
+        schedulePendingResultDrains(logger, classLoader)
         logger.info("Breeno: 小布观测 Hook 已安装")
     }
 
@@ -195,6 +212,7 @@ internal object BreenoHooks {
 
         return runCatching {
             modelExecutor.execute {
+                var ackRunId: String? = null
                 val modelResponse = runCatching {
                     val config = AgentModelClient.loadConfig()
                     if (!Prefs.isEnabled(Prefs.Keys.AGENT_CUSTOM_MODEL)) {
@@ -204,13 +222,16 @@ internal object BreenoHooks {
                         ?: error("无法获取小布进程 Context")
                     val result = AgentRuntimeClient(context, logger).run(
                         request = AgentRuntimeWire.RunRequest(
+                            runId = request.runId,
                             prompt = prompt,
                             config = config,
-                            images = request.images
+                            images = request.images,
+                            handoff = request.toRuntimeHandoff(prompt)
                         )
                     ) { event ->
                         logger.info("Agent event: ${event.toLogLine()}")
                     }
+                    ackRunId = result.runId.ifBlank { null }
                     if (!result.ok) {
                         error(result.error ?: "Agent Runtime 调用失败")
                     }
@@ -221,14 +242,29 @@ internal object BreenoHooks {
                     )
                 }
                 Handler(Looper.getMainLooper()).post {
+                    val deliveredRunId = ackRunId ?: request.runId
+                    var deliveryMarked = false
                     runCatching {
-                        injectModelResponse(classLoader, request.copy(text = prompt), modelResponse)
+                        if (!markRunDelivered(deliveredRunId)) {
+                            ackRunId?.let { runId -> ackRuntimeResult(logger, runId) }
+                            logger.info("Breeno Agent result already delivered: runId=$deliveredRunId")
+                            return@runCatching
+                        }
+                        deliveryMarked = true
+                        val injectedRequest = request.copy(text = prompt)
+                        injectModelResponse(classLoader, injectedRequest, modelResponse)
+                        persistChatHistory(logger, classLoader, injectedRequest, modelResponse.content)
+                        ackRunId?.let { runId ->
+                            ackRuntimeResult(logger, runId)
+                        }
                         logger.info(
                             "Breeno custom model injected: ${modelResponse.summary()}, " +
+                                "runId=${request.runId}, " +
                                 "recordId=${request.recordId}, sessionId=${request.sessionId}, " +
                                 "roomId=${request.roomId}"
                         )
                     }.onFailure { throwable ->
+                        if (deliveryMarked) deliveredRunIds.remove(deliveredRunId)
                         logger.error("Breeno: 注入自定义模型响应失败", throwable)
                     }
                 }
@@ -259,6 +295,142 @@ internal object BreenoHooks {
         return text.trim()
     }
 
+    private fun schedulePendingResultDrains(
+        logger: ModuleLogger,
+        classLoader: ClassLoader
+    ) {
+        val handler = Handler(Looper.getMainLooper())
+        longArrayOf(800L, 2_500L, 6_000L, 15_000L, 30_000L).forEach { delayMs ->
+            handler.postDelayed({
+                drainPendingRuntimeResults(logger, classLoader)
+            }, delayMs)
+        }
+    }
+
+    private fun drainPendingRuntimeResults(
+        logger: ModuleLogger,
+        classLoader: ClassLoader
+    ) {
+        if (!pendingDrainRunning.compareAndSet(false, true)) return
+        val context = AgentAppContext.resolve()
+        if (context == null) {
+            pendingDrainRunning.set(false)
+            return
+        }
+        modelExecutor.execute {
+            val completedRuns = runCatching {
+                AgentRuntimeClient(context, logger).drainCompletedRuns()
+            }.getOrElse { throwable ->
+                logger.warn("Breeno: 拉取 Agent 未交付结果失败: ${throwable.message ?: throwable.javaClass.simpleName}")
+                emptyList()
+            }
+            val breenoRuns = completedRuns.filter { it.handoff.source == BREENO_HANDOFF_SOURCE }
+            if (breenoRuns.isEmpty()) {
+                pendingDrainRunning.set(false)
+                return@execute
+            }
+            Handler(Looper.getMainLooper()).post {
+                try {
+                    breenoRuns.forEach { completedRun ->
+                        injectCompletedRun(logger, classLoader, completedRun)
+                    }
+                } finally {
+                    pendingDrainRunning.set(false)
+                }
+            }
+        }
+    }
+
+    private fun injectCompletedRun(
+        logger: ModuleLogger,
+        classLoader: ClassLoader,
+        completedRun: AgentRuntimeWire.CompletedRun
+    ) {
+        val runId = completedRun.result.runId.ifBlank { completedRun.handoff.id }
+        val request = textRequestFromHandoff(completedRun.handoff, runId)
+        if (request == null) {
+            logger.warn(
+                "Breeno: 忽略非小布 Agent 未交付结果: " +
+                    "runId=$runId, source=${completedRun.handoff.source}"
+            )
+            return
+        }
+        val result = completedRun.result
+        val content = if (result.ok) {
+            result.content
+        } else {
+            "小布自定义模型调用失败：${result.error ?: "Agent Runtime 调用失败"}"
+        }
+        var deliveryMarked = false
+        runCatching {
+            if (!markRunDelivered(runId)) {
+                ackRuntimeResult(logger, runId)
+                logger.info("Breeno pending Agent result already delivered: runId=$runId")
+                return@runCatching
+            }
+            deliveryMarked = true
+            injectModelResponse(
+                classLoader,
+                request,
+                AgentModelClient.ModelResponse.Text(content)
+            )
+            persistChatHistory(logger, classLoader, request, content)
+            ackRuntimeResult(logger, runId)
+            logger.info(
+                "Breeno pending Agent result injected: runId=$runId, " +
+                    "recordId=${request.recordId}, sessionId=${request.sessionId}, roomId=${request.roomId}"
+            )
+        }.onFailure { throwable ->
+            if (deliveryMarked) deliveredRunIds.remove(runId)
+            logger.error("Breeno: 注入未交付 Agent 结果失败", throwable)
+        }
+    }
+
+    private fun markRunDelivered(runId: String): Boolean =
+        runId.isBlank() || deliveredRunIds.add(runId)
+
+    private fun TextRequest.toRuntimeHandoff(userText: String): AgentRuntimeWire.EntryHandoff =
+        AgentRuntimeWire.EntryHandoff(
+            id = runId,
+            source = BREENO_HANDOFF_SOURCE,
+            payload = JSONObject()
+                .put("version", 1)
+                .put("userText", userText)
+                .put("recordId", recordId)
+                .put("originalRecordId", originalRecordId)
+                .put("sessionId", sessionId)
+                .put("roomId", roomId)
+                .toString()
+        )
+
+    private fun textRequestFromHandoff(
+        handoff: AgentRuntimeWire.EntryHandoff,
+        runId: String
+    ): TextRequest? {
+        if (handoff.source != BREENO_HANDOFF_SOURCE) return null
+        return runCatching {
+            val json = JSONObject(handoff.payload)
+            val recordId = json.optString("recordId")
+            TextRequest(
+                runId = runId.ifBlank { handoff.id },
+                text = json.optString("userText"),
+                images = emptyList(),
+                recordId = recordId,
+                originalRecordId = json.optString("originalRecordId").ifBlank { recordId },
+                sessionId = json.optString("sessionId"),
+                roomId = json.optString("roomId")
+            )
+        }.getOrNull()
+    }
+
+    private fun ackRuntimeResult(logger: ModuleLogger, runId: String) {
+        if (runId.isBlank()) return
+        val context = AgentAppContext.resolve() ?: return
+        modelExecutor.execute {
+            AgentRuntimeClient(context, logger).ackResult(runId)
+        }
+    }
+
     private fun extractTextRequest(message: Any?): TextRequest? {
         if (message == null) return null
         val events = HookSupport.invokeNoArgs(message, "getEvents") as? Iterable<*> ?: return null
@@ -278,6 +450,7 @@ internal object BreenoHooks {
                 cachedImagesFor(recordId, originalRecordId, sessionId, roomId)
             )
             return TextRequest(
+                runId = newCompactId(),
                 text = text,
                 images = images,
                 recordId = recordId,
@@ -370,11 +543,104 @@ internal object BreenoHooks {
         request: TextRequest
     ): String {
         val uniqueId = System.currentTimeMillis().toString()
-        val directive = JSONObject()
+        val directive = buildStreamTextCardJson(
+            headerId = invokeString(header, "getId") ?: newCompactId(),
+            content = content,
+            request = request
+        )
+        return JSONObject()
+            .put("version", "3.0")
+            .put("originalRecordId", request.originalRecordId.ifBlank { request.recordId })
+            .put("recordId", request.recordId)
+            .put("sessionId", request.sessionId)
+            .put("roomId", request.roomId)
+            .put("uniqueId", uniqueId)
+            .put("sequenceId", 0)
+            .put("directives", JSONArray().put(directive))
+            .toString()
+    }
+
+    private fun persistChatHistory(
+        logger: ModuleLogger,
+        classLoader: ClassLoader,
+        request: TextRequest,
+        content: String
+    ) {
+        runCatching {
+            val roomId = request.roomId.ifBlank { currentRoomId(classLoader) }
+            if (roomId.isBlank()) {
+                logger.warn("Breeno: 跳过历史写入，roomId 为空")
+                return
+            }
+            val recordId = request.recordId
+                .ifBlank { request.originalRecordId }
+                .ifBlank { newCompactId() }
+            val agentName = currentAgentName(classLoader).ifBlank { BREENO_DEFAULT_AGENT_NAME }
+            val repository = singletonInstance(classLoader, AI_CHAT_REPOSITORY_CLASS)
+                ?: error("AIChatRepository.INSTANCE is null")
+            val queryRecord = newInsertRecord(
+                classLoader = classLoader,
+                recordId = recordId,
+                content = request.text,
+                type = RECORD_TYPE_QUERY,
+                payload = null
+            )
+            val answerRecord = newInsertRecord(
+                classLoader = classLoader,
+                recordId = recordId,
+                content = content,
+                type = RECORD_TYPE_ANSWER,
+                payload = buildHistoryPayloadJson(content, request.copy(recordId = recordId, roomId = roomId))
+            )
+            invokeCompatible(
+                repository,
+                "r",
+                roomId,
+                agentName,
+                queryRecord,
+                newHistoryCallback(classLoader, logger, "query")
+            )
+            invokeCompatible(
+                repository,
+                "r",
+                roomId,
+                agentName,
+                answerRecord,
+                newHistoryCallback(classLoader, logger, "answer")
+            )
+            logger.info(
+                "Breeno history persist requested: recordId=$recordId, " +
+                    "roomId=$roomId, agent=$agentName"
+            )
+        }.onFailure { throwable ->
+            logger.warn("Breeno: 写入历史记录失败: ${throwable.message ?: throwable.javaClass.simpleName}")
+        }
+    }
+
+    private fun buildHistoryPayloadJson(content: String, request: TextRequest): String =
+        JSONObject()
+            .put(
+                "uiDirectives",
+                JSONArray().put(
+                    buildStreamTextCardJson(
+                        headerId = newCompactId(),
+                        content = content,
+                        request = request
+                    )
+                )
+            )
+            .toString()
+
+    private fun buildStreamTextCardJson(
+        headerId: String,
+        content: String,
+        request: TextRequest
+    ): JSONObject =
+        JSONObject()
             .put(
                 "header",
                 JSONObject()
-                    .put("id", invokeString(header, "getId"))
+                    .put("id", headerId)
                     .put("namespace", "MyAI")
                     .put("name", "StreamTextCard")
                     .put("namespaceVersion", "2.0.0")
@@ -391,16 +657,71 @@ internal object BreenoHooks {
                     .put("isHtml", false)
                     .put("charPerSec", 50)
             )
-        return JSONObject()
-            .put("version", "3.0")
-            .put("originalRecordId", request.originalRecordId.ifBlank { request.recordId })
-            .put("recordId", request.recordId)
-            .put("sessionId", request.sessionId)
-            .put("roomId", request.roomId)
-            .put("uniqueId", uniqueId)
-            .put("sequenceId", 0)
-            .put("directives", JSONArray().put(directive))
-            .toString()
+
+    private fun newInsertRecord(
+        classLoader: ClassLoader,
+        recordId: String,
+        content: String,
+        type: String,
+        payload: String?
+    ): Any {
+        val insertRecordClass = Class.forName(INSERT_RECORD_CLASS, false, classLoader)
+        return insertRecordClass.getDeclaredConstructor().newInstance().also { record ->
+            invokeCompatible(record, "setRecordId", recordId)
+            invokeCompatible(record, "setOriginRecordId", recordId)
+            invokeCompatible(record, "setContent", content)
+            invokeCompatible(record, "setType", type)
+            invokeCompatible(record, "setCancelFlag", java.lang.Boolean.FALSE)
+            if (payload != null) {
+                invokeCompatible(record, "setPayload", payload)
+            }
+        }
+    }
+
+    private fun currentRoomId(classLoader: ClassLoader): String =
+        singletonInstance(classLoader, AI_CHAT_ROOM_ID_MANAGER_CLASS)
+            ?.let { manager -> invokeCompatible(manager, "x") as? String }
+            .orEmpty()
+
+    private fun currentAgentName(classLoader: ClassLoader): String =
+        singletonInstance(classLoader, AI_CHAT_ROOM_ID_MANAGER_CLASS)
+            ?.let { manager -> invokeCompatible(manager, "v") as? String }
+            .orEmpty()
+
+    private fun singletonInstance(classLoader: ClassLoader, className: String): Any? =
+        runCatching {
+            Class.forName(className, false, classLoader)
+                .getDeclaredField("INSTANCE")
+                .apply { isAccessible = true }
+                .get(null)
+        }.getOrNull()
+
+    private fun newHistoryCallback(
+        classLoader: ClassLoader,
+        logger: ModuleLogger,
+        label: String
+    ): Any {
+        val functionClass = Class.forName(KOTLIN_FUNCTION1_CLASS, false, classLoader)
+        val unit = Class.forName(KOTLIN_UNIT_CLASS, false, classLoader)
+            .getDeclaredField("INSTANCE")
+            .apply { isAccessible = true }
+            .get(null)
+        return Proxy.newProxyInstance(classLoader, arrayOf(functionClass)) { proxy, method, args ->
+            when (method.name) {
+                "invoke" -> {
+                    val result = args?.firstOrNull()
+                    logger.info(
+                        "Breeno history callback[$label]: " +
+                            (result?.javaClass?.name ?: "null")
+                    )
+                    unit
+                }
+                "toString" -> "BreenoHistoryCallback($label)"
+                "hashCode" -> System.identityHashCode(proxy)
+                "equals" -> proxy === args?.firstOrNull()
+                else -> null
+            }
+        }
     }
 
     private fun summarizePayload(payload: Any?): String {
@@ -597,6 +918,7 @@ internal object BreenoHooks {
         }
 
     private data class TextRequest(
+        val runId: String,
         val text: String,
         val images: List<AgentModelClient.ModelImage>,
         val recordId: String,

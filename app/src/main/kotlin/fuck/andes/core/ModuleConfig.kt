@@ -7,6 +7,7 @@ internal object ModuleConfig {
 
     const val GOOGLE_PACKAGE = "com.google.android.googlequicksearchbox"
     const val BREENO_PACKAGE = "com.heytap.speechassist"
+    val AGENT_RUNTIME_ENTRY_PACKAGES = setOf(BREENO_PACKAGE)
     const val GOOGLE_ASSISTANT_COMPONENT =
         "com.google.android.googlequicksearchbox/com.google.android.voiceinteraction.GsaVoiceInteractionService"
     const val ASSISTANT_ROLE = "android.app.role.ASSISTANT"

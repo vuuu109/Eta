@@ -24,7 +24,7 @@ internal data class AgentOverlayState(
 /**
  * 将一个 [AgentEvent] 折叠进当前渲染状态。
  *
- * 文案逻辑自原 `BreenoHooks.toOverlayStatus` 迁移：只保留面向用户的一句话状态，
+ * 文案逻辑只保留面向用户的一句话状态，
  * 工具名经 [toToolLabel] 中文化。详细 trace 流作为后续任务，此处不展开。
  */
 internal fun AgentOverlayState.applyEvent(event: AgentEvent): AgentOverlayState = when (event) {
@@ -105,7 +105,7 @@ internal fun AgentOverlayState.applyEvent(event: AgentEvent): AgentOverlayState 
 }
 
 /**
- * 工具原始名 -> 中文标签。自原 `BreenoHooks.toToolLabel` 迁移，供渲染层共用。
+ * 工具原始名 -> 中文标签，供渲染层共用。
  */
 private fun String.toToolLabel(): String = when (this) {
     "observe_screen" -> "观察屏幕"

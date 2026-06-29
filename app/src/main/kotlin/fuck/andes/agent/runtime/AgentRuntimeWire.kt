@@ -1,15 +1,15 @@
 package fuck.andes.agent.runtime
 
-import android.os.Bundle
 import android.content.ComponentName
 import android.content.Intent
+import android.os.Bundle
 import fuck.andes.agent.model.AgentModelClient
 
 /**
  * AgentRuntime 跨进程通信协议。
  *
- * 入口进程（当前是小布 Hook）通过 bind + Messenger 与模块自身进程的
- * [AgentRuntimeService] 通信：发送一次运行请求，接收事件流和最终结果。
+ * 入口进程通过 bind + Messenger 与模块自身进程的 [AgentRuntimeService] 通信：
+ * 发送一次运行请求，接收事件流和最终结果。
  *
  * 不引入 AIDL：消息体只用 [Bundle]（Int/Boolean/String/ArrayList），跨进程传递无序列化门槛。
  */
@@ -30,16 +30,20 @@ internal object AgentRuntimeWire {
     /** client -> service：取消当前运行。 */
     const val MSG_CANCEL = 4
 
-    /**
-     * 允许向 [AgentRuntimeService] 发起运行的宿主包名集合。当前只开放小布 Hook 入口，
-     * 其余调用方发送的 Messenger 消息会被忽略。
-     */
-    val ALLOWED_CALLER_PACKAGES = setOf("com.heytap.speechassist")
+    /** client -> service：确认一个最终结果已经被入口层成功展示。 */
+    const val MSG_ACK_RESULT = 5
+
+    /** client -> service：拉取尚未被入口层确认展示的最终结果。 */
+    const val MSG_DRAIN_RESULTS = 6
+
+    /** service -> client：返回一组尚未确认展示的最终结果。 */
+    const val MSG_DRAIN_RESULTS_RESPONSE = 7
 
     private const val MODULE_PACKAGE = "fuck.andes"
     private const val SERVICE_CLASS = "fuck.andes.agent.runtime.AgentRuntimeService"
 
     private const val KEY_TYPE = "type"
+    private const val KEY_RUN_ID = "run_id"
     private const val KEY_PROMPT = "prompt"
     private const val KEY_BASE_URL = "base_url"
     private const val KEY_API_KEY = "api_key"
@@ -56,29 +60,53 @@ internal object AgentRuntimeWire {
     private const val KEY_OK = "ok"
     private const val KEY_CONTENT = "content"
     private const val KEY_ERROR = "error"
+    private const val KEY_RESULT = "result"
+    private const val KEY_HANDOFF = "handoff"
+    private const val KEY_HANDOFF_ID = "handoff_id"
+    private const val KEY_HANDOFF_SOURCE = "handoff_source"
+    private const val KEY_HANDOFF_PAYLOAD = "handoff_payload"
+    private const val KEY_CREATED_AT = "created_at"
+    private const val KEY_RESULTS = "results"
 
     data class RunRequest(
+        val runId: String,
         val prompt: String,
         val config: AgentModelClient.ModelConfig,
-        val images: List<AgentModelClient.ModelImage>
+        val images: List<AgentModelClient.ModelImage>,
+        val handoff: EntryHandoff? = null
     )
 
     data class RunResult(
+        val runId: String,
         val ok: Boolean,
         val content: String,
         val error: String? = null
+    )
+
+    data class EntryHandoff(
+        val id: String,
+        val source: String,
+        val payload: String
+    )
+
+    data class CompletedRun(
+        val handoff: EntryHandoff,
+        val result: RunResult,
+        val createdAt: Long
     )
 
     fun serviceIntent(): Intent =
         Intent(ACTION_BIND).setComponent(ComponentName(MODULE_PACKAGE, SERVICE_CLASS))
 
     fun toBundle(request: RunRequest): Bundle = Bundle().apply {
+        putString(KEY_RUN_ID, request.runId)
         putString(KEY_PROMPT, request.prompt)
         putString(KEY_BASE_URL, request.config.baseUrl)
         putString(KEY_API_KEY, request.config.apiKey)
         putString(KEY_MODEL, request.config.model)
         putString(KEY_SYSTEM_PROMPT, request.config.systemPrompt)
         putBoolean(KEY_TERMINAL_TOOLS, request.config.terminalTools)
+        request.handoff?.let { putBundle(KEY_HANDOFF, toBundle(it)) }
         putParcelableArrayList(
             KEY_IMAGES,
             ArrayList(request.images.map { image ->
@@ -96,6 +124,7 @@ internal object AgentRuntimeWire {
 
     fun runRequestFromBundle(bundle: Bundle): RunRequest =
         RunRequest(
+            runId = bundle.getString(KEY_RUN_ID).orEmpty(),
             prompt = bundle.getString(KEY_PROMPT).orEmpty(),
             config = AgentModelClient.ModelConfig(
                 baseUrl = bundle.getString(KEY_BASE_URL).orEmpty(),
@@ -113,10 +142,25 @@ internal object AgentRuntimeWire {
                     height = image.optionalInt(KEY_HEIGHT),
                     source = image.getString(KEY_SOURCE).orEmpty()
                 )
-            }
+            },
+            handoff = bundle.getBundle(KEY_HANDOFF)?.let(::entryHandoffFromBundle)
+        )
+
+    fun toBundle(handoff: EntryHandoff): Bundle = Bundle().apply {
+        putString(KEY_HANDOFF_ID, handoff.id)
+        putString(KEY_HANDOFF_SOURCE, handoff.source)
+        putString(KEY_HANDOFF_PAYLOAD, handoff.payload)
+    }
+
+    fun entryHandoffFromBundle(bundle: Bundle): EntryHandoff =
+        EntryHandoff(
+            id = bundle.getString(KEY_HANDOFF_ID).orEmpty(),
+            source = bundle.getString(KEY_HANDOFF_SOURCE).orEmpty(),
+            payload = bundle.getString(KEY_HANDOFF_PAYLOAD).orEmpty()
         )
 
     fun toBundle(result: RunResult): Bundle = Bundle().apply {
+        putString(KEY_RUN_ID, result.runId)
         putBoolean(KEY_OK, result.ok)
         putString(KEY_CONTENT, result.content)
         putString(KEY_ERROR, result.error)
@@ -124,10 +168,40 @@ internal object AgentRuntimeWire {
 
     fun runResultFromBundle(bundle: Bundle): RunResult =
         RunResult(
+            runId = bundle.getString(KEY_RUN_ID).orEmpty(),
             ok = bundle.getBoolean(KEY_OK),
             content = bundle.getString(KEY_CONTENT).orEmpty(),
             error = bundle.getString(KEY_ERROR)
         )
+
+    fun toBundle(completedRun: CompletedRun): Bundle = Bundle().apply {
+        putBundle(KEY_HANDOFF, toBundle(completedRun.handoff))
+        putBundle(KEY_RESULT, toBundle(completedRun.result))
+        putLong(KEY_CREATED_AT, completedRun.createdAt)
+    }
+
+    fun completedRunFromBundle(bundle: Bundle): CompletedRun =
+        CompletedRun(
+            handoff = entryHandoffFromBundle(bundle.getBundle(KEY_HANDOFF) ?: Bundle()),
+            result = runResultFromBundle(bundle.getBundle(KEY_RESULT) ?: Bundle()),
+            createdAt = bundle.getLong(KEY_CREATED_AT)
+        )
+
+    fun completedRunsToBundle(results: List<CompletedRun>): Bundle = Bundle().apply {
+        putParcelableArrayList(KEY_RESULTS, ArrayList(results.map(::toBundle)))
+    }
+
+    fun completedRunsFromBundle(bundle: Bundle): List<CompletedRun> =
+        bundle.getParcelableArrayList(KEY_RESULTS, Bundle::class.java)
+            .orEmpty()
+            .map(::completedRunFromBundle)
+
+    fun ackBundle(runId: String): Bundle = Bundle().apply {
+        putString(KEY_RUN_ID, runId)
+    }
+
+    fun runIdFromBundle(bundle: Bundle): String =
+        bundle.getString(KEY_RUN_ID).orEmpty()
 
     /** 将 [AgentEvent] 打包为可跨进程传递的 [Bundle]。 */
     fun eventToBundle(event: AgentEvent): Bundle = Bundle().apply {

@@ -31,6 +31,7 @@ import fuck.andes.agent.overlay.AgentOverlayState
 import fuck.andes.agent.overlay.applyEvent
 import fuck.andes.agent.tool.AgentLocalTools
 import fuck.andes.core.AndroidAgentLogger
+import fuck.andes.core.ModuleConfig
 import kotlin.concurrent.thread
 import top.yukonga.miuix.kmp.theme.MiuixTheme
 import top.yukonga.miuix.kmp.theme.darkColorScheme
@@ -55,7 +56,6 @@ internal class AgentRuntimeService : Service(), LifecycleOwner, SavedStateRegist
 
     private var clientMessenger: Messenger? = null
     private var activeRunController: AgentRunController? = null
-    private var activeThread: Thread? = null
 
     private var windowManager: WindowManager? = null
     private var composeView: ComposeView? = null
@@ -79,14 +79,15 @@ internal class AgentRuntimeService : Service(), LifecycleOwner, SavedStateRegist
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
-        stopSelf(startId)
+        if (intent?.action != ACTION_KEEP_ALIVE || activeRunController == null) {
+            stopSelf(startId)
+        }
         return START_NOT_STICKY
     }
 
     override fun onUnbind(intent: Intent?): Boolean {
         if (activeRunController != null) {
-            AndroidAgentLogger.warn("Agent runtime: client unbound while run is active, cancelling")
-            activeRunController?.cancel()
+            AndroidAgentLogger.warn("Agent runtime: client unbound while run is active, keeping detached run")
         }
         clientMessenger = null
         return false
@@ -95,7 +96,6 @@ internal class AgentRuntimeService : Service(), LifecycleOwner, SavedStateRegist
     override fun onDestroy() {
         activeRunController?.cancel()
         activeRunController = null
-        activeThread = null
         mainHandler.removeCallbacksAndMessages(null)
         composeView?.let { view -> runCatching { windowManager?.removeView(view) } }
         composeView = null
@@ -124,21 +124,36 @@ internal class AgentRuntimeService : Service(), LifecycleOwner, SavedStateRegist
                     activeRunController?.cancel()
                     state.value = state.value.copy(statusText = "正在停止")
                 }
+
+                AgentRuntimeWire.MSG_ACK_RESULT -> {
+                    AgentRuntimeResultStore.remove(
+                        this@AgentRuntimeService,
+                        AgentRuntimeWire.runIdFromBundle(msg.data ?: return)
+                    )
+                }
+
+                AgentRuntimeWire.MSG_DRAIN_RESULTS -> {
+                    sendDrainedResults(msg.replyTo)
+                }
             }
         }
     }
 
     private fun startRun(request: AgentRuntimeWire.RunRequest) {
         activeRunController?.cancel()
-        activeThread = null
+        val runController = AgentRunController()
+        activeRunController = runController
+        runCatching {
+            startService(Intent(this, AgentRuntimeService::class.java).setAction(ACTION_KEEP_ALIVE))
+        }.onFailure { throwable ->
+            AndroidAgentLogger.warn("Agent runtime keep-alive start failed: ${throwable.message ?: throwable.javaClass.simpleName}")
+        }
         mainHandler.removeCallbacksAndMessages(hideToken)
         state.value = AgentOverlayState.Initial
         collapsed.value = false
         ensureOverlayVisible()
 
-        val runController = AgentRunController()
-        activeRunController = runController
-        activeThread = thread(name = "agent-runtime") {
+        thread(name = "agent-runtime") {
             runCatching {
                 val response = AgentModelClient.complete(
                     config = request.config,
@@ -157,10 +172,15 @@ internal class AgentRuntimeService : Service(), LifecycleOwner, SavedStateRegist
                         ensureOverlayVisible()
                     }
                 }
-                sendResult(AgentRuntimeWire.RunResult(ok = true, content = response.content))
+                val result = AgentRuntimeWire.RunResult(
+                    runId = request.runId,
+                    ok = true,
+                    content = response.content
+                )
+                persistCompletedRun(request, result)
+                sendResult(result)
                 mainHandler.post {
                     activeRunController = null
-                    activeThread = null
                     enterFinalState(
                         state.value.copy(
                             phase = AgentOverlayPhase.FINISHED,
@@ -176,10 +196,16 @@ internal class AgentRuntimeService : Service(), LifecycleOwner, SavedStateRegist
                 }
                 AndroidAgentLogger.error("Agent runtime failed: $message", throwable)
                 sendEvent(AgentEvent.RunFailed(message))
-                sendResult(AgentRuntimeWire.RunResult(ok = false, content = "", error = message))
+                val result = AgentRuntimeWire.RunResult(
+                    runId = request.runId,
+                    ok = false,
+                    content = "",
+                    error = message
+                )
+                persistCompletedRun(request, result)
+                sendResult(result)
                 mainHandler.post {
                     activeRunController = null
-                    activeThread = null
                     enterFinalState(
                         AgentOverlayState(
                             phase = AgentOverlayPhase.FAILED,
@@ -208,8 +234,35 @@ internal class AgentRuntimeService : Service(), LifecycleOwner, SavedStateRegist
         }
     }
 
+    private fun sendDrainedResults(replyTo: Messenger?) {
+        runCatching {
+            val msg = Message.obtain(null, AgentRuntimeWire.MSG_DRAIN_RESULTS_RESPONSE)
+            msg.data = AgentRuntimeWire.completedRunsToBundle(
+                AgentRuntimeResultStore.list(this)
+            )
+            replyTo?.send(msg)
+        }.onFailure { throwable ->
+            AndroidAgentLogger.warn("Agent runtime drain results failed: ${throwable.message ?: throwable.javaClass.simpleName}")
+        }
+    }
+
+    private fun persistCompletedRun(
+        request: AgentRuntimeWire.RunRequest,
+        result: AgentRuntimeWire.RunResult
+    ) {
+        val handoff = request.handoff ?: return
+        AgentRuntimeResultStore.add(
+            this,
+            AgentRuntimeWire.CompletedRun(
+                handoff = handoff,
+                result = result,
+                createdAt = System.currentTimeMillis()
+            )
+        )
+    }
+
     private fun finishWithFailure(message: String) {
-        sendResult(AgentRuntimeWire.RunResult(ok = false, content = "", error = message))
+        sendResult(AgentRuntimeWire.RunResult(runId = "", ok = false, content = "", error = message))
         enterFinalState(
             AgentOverlayState(
                 phase = AgentOverlayPhase.FAILED,
@@ -298,7 +351,7 @@ internal class AgentRuntimeService : Service(), LifecycleOwner, SavedStateRegist
         val packages = runCatching {
             packageManager.getPackagesForUid(uid)
         }.getOrNull().orEmpty()
-        return packages.any { it in AgentRuntimeWire.ALLOWED_CALLER_PACKAGES }
+        return packages.any { it in ModuleConfig.AGENT_RUNTIME_ENTRY_PACKAGES }
     }
 
     private fun isNightMode(): Boolean {
@@ -307,6 +360,7 @@ internal class AgentRuntimeService : Service(), LifecycleOwner, SavedStateRegist
     }
 
     private companion object {
+        const val ACTION_KEEP_ALIVE = "fuck.andes.agent.runtime.KEEP_ALIVE"
         const val HIDE_DELAY_MS = 2_500L
     }
 }
