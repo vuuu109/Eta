@@ -1,6 +1,7 @@
-package fuck.andes.agent.media
+package fuck.andes.hook.breeno
 
-import fuck.andes.agent.model.BreenoModelClient
+import fuck.andes.agent.media.AgentImageCodec
+import fuck.andes.agent.model.AgentModelClient
 import fuck.andes.core.HookSupport
 
 import android.content.Context
@@ -11,7 +12,7 @@ internal object BreenoRequestImages {
     private const val MAX_IMAGES = 4
     private const val MAX_CANDIDATES = 32
 
-    fun fromMessage(context: Context?, message: Any?): List<BreenoModelClient.ModelImage> {
+    fun fromMessage(context: Context?, message: Any?): List<AgentModelClient.ModelImage> {
         if (message == null) return emptyList()
         val candidates = linkedMapOf<String, String>()
         val events = HookSupport.invokeNoArgs(message, "getEvents") as? Iterable<*> ?: return emptyList()
@@ -22,14 +23,14 @@ internal object BreenoRequestImages {
         return resolve(context, candidates)
     }
 
-    fun fromText(context: Context?, text: String?, source: String): List<BreenoModelClient.ModelImage> {
+    fun fromText(context: Context?, text: String?, source: String): List<AgentModelClient.ModelImage> {
         if (text.isNullOrBlank()) return emptyList()
         val candidates = linkedMapOf<String, String>()
         collectFromString(text, source, candidates, imageHint = source.hasImageHint(), depth = 0)
         return resolve(context, candidates)
     }
 
-    fun summary(images: List<BreenoModelClient.ModelImage>): String =
+    fun summary(images: List<AgentModelClient.ModelImage>): String =
         images.joinToString(prefix = "[", postfix = "]") { image ->
             val size = if (image.width != null && image.height != null) {
                 "${image.width}x${image.height}"
@@ -118,6 +119,7 @@ internal object BreenoRequestImages {
             val value = json.opt(key)
             val nextSource = "$source.$key"
             when (value) {
+                null -> Unit
                 is String -> collectFromString(
                     value,
                     nextSource,
@@ -145,11 +147,11 @@ internal object BreenoRequestImages {
     private fun resolve(
         context: Context?,
         candidates: LinkedHashMap<String, String>
-    ): List<BreenoModelClient.ModelImage> =
+    ): List<AgentModelClient.ModelImage> =
         candidates.entries
             .asSequence()
             .mapNotNull { (value, source) ->
-                runCatching { BreenoImageCodec.fromReference(context, value, source) }.getOrNull()
+                runCatching { AgentImageCodec.fromReference(context, value, source) }.getOrNull()
             }
             .distinctBy { image -> "${image.mimeType}:${image.bytes}:${image.width}x${image.height}:${image.dataUrl.take(80)}" }
             .take(MAX_IMAGES)

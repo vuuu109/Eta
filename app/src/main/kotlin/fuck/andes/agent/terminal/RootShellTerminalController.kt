@@ -74,7 +74,7 @@ internal class RootShellTerminalController(
         val timeout = timeoutSeconds.coerceIn(1, MAX_TIMEOUT_SECONDS)
         val setup = if (safeCwd == DEFAULT_CWD) "mkdir -p ${shellQuote(DEFAULT_CWD)} && " else ""
         val fullCommand = "${setup}cd ${shellQuote(safeCwd)} && export TERM=dumb NO_COLOR=1 && $trimmed"
-        logger.info("Breeno terminal $toolName: identity=$normalizedIdentity, cwd=$safeCwd, timeout=${timeout}s, command=${trimmed.preview()}")
+        logger.info("Agent terminal $toolName: identity=$normalizedIdentity, cwd=$safeCwd, timeout=${timeout}s, command=${trimmed.preview()}")
         val result = if (normalizedIdentity == "root") {
             runSuText(fullCommand, timeoutSeconds = timeout.toLong())
         } else {
@@ -107,7 +107,7 @@ internal class RootShellTerminalController(
         val offset = offsetBytes.coerceAtLeast(0)
         val limit = maxBytes.coerceIn(1, MAX_READ_BYTES)
         val command = "dd if=${shellQuote(safePath)} bs=1 skip=$offset count=$limit 2>/dev/null"
-        logger.info("Breeno terminal read_file: path=$safePath, offset=$offset, max=$limit")
+        logger.info("Agent terminal read_file: path=$safePath, offset=$offset, max=$limit")
         val result = runSuBytes(command, timeoutSeconds = 20)
         if (result.exitCode != 0) {
             return errorJson("READ_FAILED", result.stderr.ifBlank { "exit=${result.exitCode}" })
@@ -131,7 +131,7 @@ internal class RootShellTerminalController(
         require(bytes.size <= MAX_WRITE_BYTES) { "写入内容过大：${bytes.size} bytes" }
         val mode = if (append) ">>" else ">"
         val command = "mkdir -p ${shellQuote(File(safePath).parent ?: "/")} && cat $mode ${shellQuote(safePath)}"
-        logger.info("Breeno terminal write_file: path=$safePath, append=$append, bytes=${bytes.size}")
+        logger.info("Agent terminal write_file: path=$safePath, append=$append, bytes=${bytes.size}")
         val result = runSuTextWithStdin(command, bytes, timeoutSeconds = 20)
         return if (result.exitCode == 0) {
             JSONObject()
@@ -151,7 +151,7 @@ internal class RootShellTerminalController(
         val maxEntries = limit.coerceIn(1, MAX_LIST_ENTRIES)
         val flags = if (showHidden) "-la" else "-l"
         val command = "cd ${shellQuote(safePath)} && ls $flags | head -n $maxEntries"
-        logger.info("Breeno terminal list_directory: path=$safePath, hidden=$showHidden, limit=$maxEntries")
+        logger.info("Agent terminal list_directory: path=$safePath, hidden=$showHidden, limit=$maxEntries")
         val result = runSuText(command, timeoutSeconds = 15)
         return JSONObject()
             .put("ok", result.exitCode == 0)
@@ -227,13 +227,13 @@ internal class RootShellTerminalController(
 
         val output = ByteArrayOutputCollector()
         val stderr = ByteArrayOutputCollector()
-        val outputThread = thread(name = "breeno-terminal-stdout") {
+        val outputThread = thread(name = "agent-terminal-stdout") {
             process.inputStream.use { input -> output.readFrom(input) }
         }
-        val stderrThread = thread(name = "breeno-terminal-stderr") {
+        val stderrThread = thread(name = "agent-terminal-stderr") {
             process.errorStream.use { input -> stderr.readFrom(input) }
         }
-        val stdinThread = thread(name = "breeno-terminal-stdin") {
+        val stdinThread = thread(name = "agent-terminal-stdin") {
             process.outputStream.use { out ->
                 if (stdin != null) out.write(stdin)
             }

@@ -1,7 +1,6 @@
 package fuck.andes.agent.media
 
-import fuck.andes.agent.model.BreenoModelClient
-import fuck.andes.core.HookSupport
+import fuck.andes.agent.model.AgentModelClient
 
 import android.content.Context
 import android.graphics.Bitmap
@@ -11,7 +10,7 @@ import android.util.Base64
 import java.io.ByteArrayOutputStream
 import java.io.File
 
-internal object BreenoImageCodec {
+internal object AgentImageCodec {
     private const val MAX_EDGE = 1080
     private const val JPEG_QUALITY = 82
     private const val MAX_IMAGE_BYTES = 3 * 1024 * 1024
@@ -20,11 +19,11 @@ internal object BreenoImageCodec {
         bytes: ByteArray,
         source: String,
         mimeHint: String = "image/jpeg"
-    ): BreenoModelClient.ModelImage {
+    ): AgentModelClient.ModelImage {
         val decoded = BitmapFactory.decodeByteArray(bytes, 0, bytes.size)
         if (decoded == null) {
             val mime = mimeHint.ifBlank { "image/jpeg" }
-            return BreenoModelClient.ModelImage(
+            return AgentModelClient.ModelImage(
                 dataUrl = "data:$mime;base64,${Base64.encodeToString(bytes, Base64.NO_WRAP)}",
                 mimeType = mime,
                 bytes = bytes.size,
@@ -41,7 +40,7 @@ internal object BreenoImageCodec {
         if (scaled !== decoded) scaled.recycle()
         decoded.recycle()
 
-        return BreenoModelClient.ModelImage(
+        return AgentModelClient.ModelImage(
             dataUrl = "data:image/jpeg;base64,${Base64.encodeToString(jpeg, Base64.NO_WRAP)}",
             mimeType = "image/jpeg",
             bytes = jpeg.size,
@@ -51,11 +50,11 @@ internal object BreenoImageCodec {
         )
     }
 
-    fun fromReference(context: Context?, value: String, source: String): BreenoModelClient.ModelImage? {
+    fun fromReference(context: Context?, value: String, source: String): AgentModelClient.ModelImage? {
         val trimmed = value.trim()
         if (trimmed.isBlank()) return null
         if (trimmed.startsWith("http://") || trimmed.startsWith("https://")) {
-            return BreenoModelClient.ModelImage(
+            return AgentModelClient.ModelImage(
                 dataUrl = trimmed,
                 mimeType = "image/*",
                 bytes = 0,
@@ -66,7 +65,7 @@ internal object BreenoImageCodec {
             val bytes = trimmed.substringAfter("base64,", "").let {
                 runCatching { Base64.decode(it, Base64.DEFAULT).size }.getOrDefault(0)
             }
-            return BreenoModelClient.ModelImage(
+            return AgentModelClient.ModelImage(
                 dataUrl = trimmed,
                 mimeType = trimmed.substringAfter("data:").substringBefore(";"),
                 bytes = bytes,

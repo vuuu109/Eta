@@ -1,8 +1,8 @@
 package fuck.andes.agent.tool
 
 import fuck.andes.agent.device.RootShellDeviceController
-import fuck.andes.agent.model.BreenoModelClient
-import fuck.andes.agent.runtime.BreenoAppContext
+import fuck.andes.agent.model.AgentModelClient
+import fuck.andes.agent.runtime.AgentAppContext
 import fuck.andes.agent.terminal.RootShellTerminalController
 import fuck.andes.core.HookSupport
 import fuck.andes.core.ModuleLogger
@@ -17,16 +17,16 @@ import java.util.Locale
 import org.json.JSONArray
 import org.json.JSONObject
 
-internal class BreenoLocalTools(
+internal class AgentLocalTools(
     private val logger: ModuleLogger
-) : BreenoModelClient.ToolExecutor {
+) : AgentModelClient.ToolExecutor {
 
     private val deviceController = RootShellDeviceController(logger)
     private val terminalController = RootShellTerminalController(logger)
     private var lastUiNodes: List<RootShellDeviceController.UiNode> = emptyList()
     private var lastCoordinateSpace: RootShellDeviceController.CoordinateSpace? = null
 
-    override fun execute(toolCall: BreenoModelClient.ToolCall): BreenoModelClient.ToolResult =
+    override fun execute(toolCall: AgentModelClient.ToolCall): AgentModelClient.ToolResult =
         runCatching {
             val args = JSONObject(toolCall.argumentsJson.ifBlank { "{}" })
             when (toolCall.name) {
@@ -64,13 +64,13 @@ internal class BreenoLocalTools(
         }
 
     private fun terminalTool(block: () -> String): String {
-        if (!Prefs.isEnabled(Prefs.Keys.BREENO_CUSTOM_MODEL)) {
-            return errorResult("CUSTOM_MODEL_DISABLED", "请先在 FuckAndes 设置中启用“小布自定义模型”")
+        if (!Prefs.isEnabled(Prefs.Keys.AGENT_TERMINAL_TOOLS)) {
+            return errorResult("TERMINAL_TOOLS_DISABLED", "请先启用终端/文件工具")
         }
         return block()
     }
 
-    private fun observeScreen(args: JSONObject): BreenoModelClient.ToolResult {
+    private fun observeScreen(args: JSONObject): AgentModelClient.ToolResult {
         val observation = deviceController.observe(
             includeScreenshot = args.optBoolean("include_screenshot", true),
             includeUiTree = args.optBoolean("include_ui_tree", true),
@@ -79,10 +79,10 @@ internal class BreenoLocalTools(
         lastUiNodes = observation.nodes
         lastCoordinateSpace = observation.coordinateSpace
         logger.info(
-            "Breeno local tool observe_screen: nodes=${observation.nodes.size}, " +
+            "Agent local tool observe_screen: nodes=${observation.nodes.size}, " +
                 "image=${observation.image?.bytes ?: 0}, coordinate=${observation.coordinateSpace?.summary()}"
         )
-        return BreenoModelClient.ToolResult(
+        return AgentModelClient.ToolResult(
             content = observation.content,
             images = listOfNotNull(observation.image)
         )
@@ -207,7 +207,7 @@ internal class BreenoLocalTools(
         }
         launchIntent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_RESET_TASK_IF_NEEDED)
         context.startActivity(launchIntent)
-        logger.info("Breeno local tool launch_app: ${app.appName}/${app.packageName}")
+        logger.info("Agent local tool launch_app: ${app.appName}/${app.packageName}")
         return JSONObject()
             .put("ok", true)
             .put("tool", "launch_app")
@@ -232,7 +232,7 @@ internal class BreenoLocalTools(
             return errorResult("NO_ACTIVITY", "没有应用可以处理该 URI：$uriText")
         }
         context.startActivity(intent)
-        logger.info("Breeno local tool open_uri: $uriText")
+        logger.info("Agent local tool open_uri: $uriText")
         return JSONObject()
             .put("ok", true)
             .put("tool", "open_uri")
@@ -344,8 +344,8 @@ internal class BreenoLocalTools(
     }
 
     private fun requireContext(): Context =
-        BreenoAppContext.resolve()
-            ?: error("无法获取小布进程 Context")
+        AgentAppContext.resolve()
+            ?: error("无法获取 Android 进程 Context")
 
     private fun List<AppInfo>.toJsonArray(): JSONArray =
         JSONArray().also { array ->
@@ -369,8 +369,8 @@ internal class BreenoLocalTools(
             .put("message", message)
             .toString()
 
-    private fun textResult(content: String): BreenoModelClient.ToolResult =
-        BreenoModelClient.ToolResult(content)
+    private fun textResult(content: String): AgentModelClient.ToolResult =
+        AgentModelClient.ToolResult(content)
 
     private data class ScreenPoint(val x: Int, val y: Int)
 

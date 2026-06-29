@@ -2,7 +2,7 @@ package fuck.andes.agent.runtime
 
 import android.content.Context
 
-internal object BreenoAppContext {
+internal object AgentAppContext {
     fun resolve(): Context? {
         val activityThreadClass = runCatching {
             Class.forName("android.app.ActivityThread")

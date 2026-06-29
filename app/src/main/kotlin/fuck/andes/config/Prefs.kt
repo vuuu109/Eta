@@ -30,13 +30,13 @@ internal object Prefs {
         const val DOUBLE_FINGER_CIRCLE_TO_SEARCH = "double_finger_circle_to_search"
         const val LOCKSCREEN_VOICE_COMMAND = "lockscreen_voice_command"
         const val SCREEN_ON_VOICE_COMMAND = "screen_on_voice_command"
-        const val BREENO_CUSTOM_MODEL = "breeno_custom_model"
-        const val BREENO_REQUIRE_PREFIX = "breeno_require_prefix"
-        const val BREENO_BASE_URL = "breeno_base_url"
-        const val BREENO_API_KEY = "breeno_api_key"
-        const val BREENO_MODEL = "breeno_model"
-        const val BREENO_SYSTEM_PROMPT = "breeno_system_prompt"
-        const val BREENO_TERMINAL_TOOLS = "breeno_terminal_tools"
+        const val AGENT_CUSTOM_MODEL = "agent_custom_model"
+        const val AGENT_REQUIRE_PREFIX = "agent_require_prefix"
+        const val AGENT_BASE_URL = "agent_base_url"
+        const val AGENT_API_KEY = "agent_api_key"
+        const val AGENT_MODEL = "agent_model"
+        const val AGENT_SYSTEM_PROMPT = "agent_system_prompt"
+        const val AGENT_TERMINAL_TOOLS = "agent_terminal_tools"
 
         /** 全部布尔开关及其默认值。 */
         val BOOLEAN_DEFAULTS: Map<String, Boolean> = mapOf(
@@ -47,17 +47,17 @@ internal object Prefs {
             DOUBLE_FINGER_CIRCLE_TO_SEARCH to true,
             LOCKSCREEN_VOICE_COMMAND to true,
             SCREEN_ON_VOICE_COMMAND to true,
-            BREENO_CUSTOM_MODEL to false,
-            BREENO_REQUIRE_PREFIX to true,
-            BREENO_TERMINAL_TOOLS to false
+            AGENT_CUSTOM_MODEL to false,
+            AGENT_REQUIRE_PREFIX to true,
+            AGENT_TERMINAL_TOOLS to false
         )
 
         /** 文本配置默认值。 */
         val STRING_DEFAULTS: Map<String, String> = mapOf(
-            BREENO_BASE_URL to "https://api.openai.com/v1",
-            BREENO_API_KEY to "",
-            BREENO_MODEL to "gpt-4.1-mini",
-            BREENO_SYSTEM_PROMPT to "你正在通过 ColorOS 小布助手回答用户。回答要简洁、直接，并保留必要的操作上下文。"
+            AGENT_BASE_URL to "https://api.openai.com/v1",
+            AGENT_API_KEY to "",
+            AGENT_MODEL to "gpt-4.1-mini",
+            AGENT_SYSTEM_PROMPT to "你是运行在 Android 设备上的手机 Agent。回答要简洁、直接，并保留必要的操作上下文。"
         )
     }
 

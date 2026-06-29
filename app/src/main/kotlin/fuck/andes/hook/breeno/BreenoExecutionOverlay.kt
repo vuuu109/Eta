@@ -11,7 +11,7 @@ import android.view.Gravity
 import android.view.View
 import android.view.WindowManager
 import android.widget.TextView
-import fuck.andes.agent.runtime.BreenoAppContext
+import fuck.andes.agent.runtime.AgentAppContext
 
 internal object BreenoExecutionOverlay {
     private const val HIDE_DELAY_MS = 2_500L
@@ -23,7 +23,7 @@ internal object BreenoExecutionOverlay {
 
     fun show(title: String, detail: String) {
         post {
-            val context = BreenoAppContext.resolve() ?: return@post
+            val context = AgentAppContext.resolve() ?: return@post
             if (!ensureView(context)) return@post
             updateText(title, detail)
             view?.visibility = View.VISIBLE
@@ -33,7 +33,7 @@ internal object BreenoExecutionOverlay {
     fun update(title: String, detail: String) {
         post {
             if (view == null) {
-                val context = BreenoAppContext.resolve() ?: return@post
+                val context = AgentAppContext.resolve() ?: return@post
                 if (!ensureView(context)) return@post
             }
             updateText(title, detail)

@@ -1,7 +1,7 @@
 package fuck.andes.agent.device
 
-import fuck.andes.agent.media.BreenoImageCodec
-import fuck.andes.agent.model.BreenoModelClient
+import fuck.andes.agent.media.AgentImageCodec
+import fuck.andes.agent.model.AgentModelClient
 import fuck.andes.core.ModuleLogger
 
 import android.graphics.Rect
@@ -19,7 +19,7 @@ internal class RootShellDeviceController(
 ) {
     data class Observation(
         val content: String,
-        val image: BreenoModelClient.ModelImage?,
+        val image: AgentModelClient.ModelImage?,
         val nodes: List<UiNode>,
         val coordinateSpace: CoordinateSpace?
     )
@@ -183,13 +183,13 @@ internal class RootShellDeviceController(
         return inputCommand("input keyevent $keyCode", "press_key")
     }
 
-    private fun captureScreenshot(): BreenoModelClient.ModelImage? {
+    private fun captureScreenshot(): AgentModelClient.ModelImage? {
         val result = runSuBytes("screencap -p", timeoutSeconds = 8)
         if (result.exitCode != 0 || result.output.isEmpty()) {
-            logger.warn("Breeno root screenshot failed: exit=${result.exitCode}, ${result.stderr.take(160)}")
+            logger.warn("Agent root screenshot failed: exit=${result.exitCode}, ${result.stderr.take(160)}")
             return null
         }
-        return BreenoImageCodec.fromBytes(result.output, source = "screen")
+        return AgentImageCodec.fromBytes(result.output, source = "screen")
     }
 
     private fun dumpUiNodes(maxNodes: Int): List<UiNode> {
@@ -199,7 +199,7 @@ internal class RootShellDeviceController(
             timeoutSeconds = 10
         )
         if (result.exitCode != 0 || result.output.isBlank()) {
-            logger.warn("Breeno root uiautomator failed: exit=${result.exitCode}, ${result.output.take(160)}")
+            logger.warn("Agent root uiautomator failed: exit=${result.exitCode}, ${result.output.take(160)}")
             return emptyList()
         }
         return parseUiNodes(result.output, maxNodes)
@@ -348,11 +348,11 @@ internal class RootShellDeviceController(
 
         val output = ByteArrayOutputCollector()
         val stderr = ByteArrayOutputCollector()
-        val outputThread = thread(name = "breeno-root-stdout") {
+        val outputThread = thread(name = "agent-root-stdout") {
             process.inputStream.use { input -> output.readFrom(input) }
         }
         val stderrThread = if (text) null else {
-            thread(name = "breeno-root-stderr") {
+            thread(name = "agent-root-stderr") {
                 process.errorStream.use { input -> stderr.readFrom(input) }
             }
         }

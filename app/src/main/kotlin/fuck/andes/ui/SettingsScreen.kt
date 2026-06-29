@@ -197,15 +197,15 @@ internal fun SettingsScreen(context: Context) {
                 }
             }
 
-            // ── 小布模型 ────────────────────────────────────────────────
-            item(key = "section_breeno_model") {
-                SmallTitle("小布模型")
+            // ── 小布自定义模型 ─────────────────────────────────────────────
+            item(key = "section_agent_model") {
+                SmallTitle("小布自定义模型")
                 Card(modifier = Modifier.padding(horizontal = 12.dp).padding(bottom = 12.dp)) {
                     SwitchPref(
                         context = context,
                         prefs = prefs,
                         title = "启用小布自定义模型",
-                        key = Prefs.Keys.BREENO_CUSTOM_MODEL,
+                        key = Prefs.Keys.AGENT_CUSTOM_MODEL,
                         icon = MiuixIcons.Tune,
                         iconTint = IconTintGreen,
                     )
@@ -214,7 +214,7 @@ internal fun SettingsScreen(context: Context) {
                         context = context,
                         prefs = prefs,
                         title = "仅 /agent 前缀接管",
-                        key = Prefs.Keys.BREENO_REQUIRE_PREFIX,
+                        key = Prefs.Keys.AGENT_REQUIRE_PREFIX,
                         icon = MiuixIcons.Lock,
                         iconTint = IconTintGreen,
                     )
@@ -223,7 +223,7 @@ internal fun SettingsScreen(context: Context) {
                         context = context,
                         prefs = prefs,
                         title = "启用终端/文件工具",
-                        key = Prefs.Keys.BREENO_TERMINAL_TOOLS,
+                        key = Prefs.Keys.AGENT_TERMINAL_TOOLS,
                         icon = MiuixIcons.ConvertFile,
                         iconTint = IconTintPurple,
                     )
@@ -231,7 +231,7 @@ internal fun SettingsScreen(context: Context) {
                     TextPref(
                         prefs = prefs,
                         title = "API 地址",
-                        key = Prefs.Keys.BREENO_BASE_URL,
+                        key = Prefs.Keys.AGENT_BASE_URL,
                         icon = MiuixIcons.Link,
                         iconTint = IconTintGreen,
                         revision = prefRevision,
@@ -241,7 +241,7 @@ internal fun SettingsScreen(context: Context) {
                     TextPref(
                         prefs = prefs,
                         title = "API Key",
-                        key = Prefs.Keys.BREENO_API_KEY,
+                        key = Prefs.Keys.AGENT_API_KEY,
                         icon = MiuixIcons.Lock,
                         iconTint = IconTintGreen,
                         sensitive = true,
@@ -252,7 +252,7 @@ internal fun SettingsScreen(context: Context) {
                     TextPref(
                         prefs = prefs,
                         title = "模型名",
-                        key = Prefs.Keys.BREENO_MODEL,
+                        key = Prefs.Keys.AGENT_MODEL,
                         icon = MiuixIcons.Mic,
                         iconTint = IconTintGreen,
                         revision = prefRevision,
@@ -262,7 +262,7 @@ internal fun SettingsScreen(context: Context) {
                     TextPref(
                         prefs = prefs,
                         title = "系统提示词",
-                        key = Prefs.Keys.BREENO_SYSTEM_PROMPT,
+                        key = Prefs.Keys.AGENT_SYSTEM_PROMPT,
                         icon = MiuixIcons.ConvertFile,
                         iconTint = IconTintGreen,
                         singleLine = false,

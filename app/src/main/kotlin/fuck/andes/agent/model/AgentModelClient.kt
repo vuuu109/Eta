@@ -9,7 +9,7 @@ import java.net.URL
 import org.json.JSONArray
 import org.json.JSONObject
 
-internal object BreenoModelClient {
+internal object AgentModelClient {
     private const val CONNECT_TIMEOUT_MS = 15_000
     private const val READ_TIMEOUT_MS = 60_000
     private const val MAX_ERROR_CHARS = 600
@@ -17,12 +17,11 @@ internal object BreenoModelClient {
 
     fun loadConfig(): ModelConfig =
         ModelConfig(
-            baseUrl = Prefs.getString(Prefs.Keys.BREENO_BASE_URL).trim(),
-            apiKey = Prefs.getString(Prefs.Keys.BREENO_API_KEY).trim(),
-            model = Prefs.getString(Prefs.Keys.BREENO_MODEL).trim(),
-            systemPrompt = Prefs.getString(Prefs.Keys.BREENO_SYSTEM_PROMPT).trim(),
-            terminalTools = Prefs.isEnabled(Prefs.Keys.BREENO_CUSTOM_MODEL) ||
-                Prefs.isEnabled(Prefs.Keys.BREENO_TERMINAL_TOOLS)
+            baseUrl = Prefs.getString(Prefs.Keys.AGENT_BASE_URL).trim(),
+            apiKey = Prefs.getString(Prefs.Keys.AGENT_API_KEY).trim(),
+            model = Prefs.getString(Prefs.Keys.AGENT_MODEL).trim(),
+            systemPrompt = Prefs.getString(Prefs.Keys.AGENT_SYSTEM_PROMPT).trim(),
+            terminalTools = Prefs.isEnabled(Prefs.Keys.AGENT_TERMINAL_TOOLS)
         )
 
     fun complete(

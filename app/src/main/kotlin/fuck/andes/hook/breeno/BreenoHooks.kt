@@ -1,9 +1,8 @@
 package fuck.andes.hook.breeno
 
-import fuck.andes.agent.media.BreenoRequestImages
-import fuck.andes.agent.model.BreenoModelClient
-import fuck.andes.agent.runtime.BreenoAppContext
-import fuck.andes.agent.tool.BreenoLocalTools
+import fuck.andes.agent.model.AgentModelClient
+import fuck.andes.agent.runtime.AgentAppContext
+import fuck.andes.agent.tool.AgentLocalTools
 import fuck.andes.core.HookSupport
 import fuck.andes.core.ModuleLogger
 
@@ -37,9 +36,9 @@ internal object BreenoHooks {
     private const val MAX_TEXT_CHARS = 240
     private const val RAW_LOG_CHUNK_CHARS = 3_200
     private val modelExecutor = Executors.newSingleThreadExecutor { runnable ->
-        Thread(runnable, "FuckAndes-BreenoModel").apply { isDaemon = true }
+        Thread(runnable, "FuckAndes-AgentModel").apply { isDaemon = true }
     }
-    private val cdmImageCache = ConcurrentHashMap<String, List<BreenoModelClient.ModelImage>>()
+    private val cdmImageCache = ConcurrentHashMap<String, List<AgentModelClient.ModelImage>>()
 
     fun install(module: XposedModule, logger: ModuleLogger, classLoader: ClassLoader) {
         hookOutboundMessage(module, logger, classLoader)
@@ -197,22 +196,22 @@ internal object BreenoHooks {
             BreenoExecutionOverlay.show("小布 Agent", "收到指令，准备调用模型")
             modelExecutor.execute {
                 val modelResponse = runCatching {
-                    val config = BreenoModelClient.loadConfig()
-                    if (!Prefs.isEnabled(Prefs.Keys.BREENO_CUSTOM_MODEL)) {
+                    val config = AgentModelClient.loadConfig()
+                    if (!Prefs.isEnabled(Prefs.Keys.AGENT_CUSTOM_MODEL)) {
                         error("请先在 FuckAndes 设置中启用“小布自定义模型”")
                     }
-                    BreenoModelClient.complete(
+                    AgentModelClient.complete(
                         config,
                         prompt,
-                        BreenoLocalTools(logger),
+                        AgentLocalTools(logger),
                         images = request.images
                     ) { event ->
-                        logger.info("Breeno model trace: $event")
+                        logger.info("Agent model trace: $event")
                         BreenoExecutionOverlay.update("小布 Agent", event.toOverlayStatus())
                     }
                 }.getOrElse { throwable ->
                     BreenoExecutionOverlay.finish("调用失败：${throwable.message ?: throwable.javaClass.simpleName}")
-                    BreenoModelClient.ModelResponse.Text(
+                    AgentModelClient.ModelResponse.Text(
                         "小布自定义模型调用失败：${throwable.message ?: throwable.javaClass.simpleName}"
                     )
                 }
@@ -245,15 +244,15 @@ internal object BreenoHooks {
     private fun injectModelResponse(
         classLoader: ClassLoader,
         request: TextRequest,
-        response: BreenoModelClient.ModelResponse.Text
+        response: AgentModelClient.ModelResponse.Text
     ) {
         injectStreamTextCard(classLoader, request, response.content)
     }
 
     private fun resolveCustomModelPrompt(text: String): String? {
         text.removeExperimentalPrefixOrNull()?.let { return it }
-        if (!Prefs.isEnabled(Prefs.Keys.BREENO_CUSTOM_MODEL)) return null
-        if (Prefs.isEnabled(Prefs.Keys.BREENO_REQUIRE_PREFIX)) return null
+        if (!Prefs.isEnabled(Prefs.Keys.AGENT_CUSTOM_MODEL)) return null
+        if (Prefs.isEnabled(Prefs.Keys.AGENT_REQUIRE_PREFIX)) return null
         return text.trim()
     }
 
@@ -272,7 +271,7 @@ internal object BreenoHooks {
             val payload = HookSupport.invokeNoArgs(event, "getPayload")
             val text = invokeString(payload, "getText") ?: continue
             val images = mergeRequestImages(
-                BreenoRequestImages.fromMessage(BreenoAppContext.resolve(), message),
+                BreenoRequestImages.fromMessage(AgentAppContext.resolve(), message),
                 cachedImagesFor(recordId, originalRecordId, sessionId, roomId)
             )
             return TextRequest(
@@ -505,7 +504,7 @@ internal object BreenoHooks {
     private fun cacheCdmImages(logger: ModuleLogger, parameter: Any?) {
         if (parameter == null) return
         val data = invokeString(parameter, "getData")
-        val images = BreenoRequestImages.fromText(BreenoAppContext.resolve(), data, "cdm.data")
+        val images = BreenoRequestImages.fromText(AgentAppContext.resolve(), data, "cdm.data")
         if (images.isEmpty()) return
         if (cdmImageCache.size > 32) cdmImageCache.clear()
         val keys = listOfNotNull(
@@ -520,16 +519,16 @@ internal object BreenoHooks {
         )
     }
 
-    private fun cachedImagesFor(vararg keys: String): List<BreenoModelClient.ModelImage> =
+    private fun cachedImagesFor(vararg keys: String): List<AgentModelClient.ModelImage> =
         keys.asSequence()
             .filter { it.isNotBlank() }
             .flatMap { key -> cdmImageCache.remove(key).orEmpty().asSequence() }
             .toList()
 
     private fun mergeRequestImages(
-        direct: List<BreenoModelClient.ModelImage>,
-        cached: List<BreenoModelClient.ModelImage>
-    ): List<BreenoModelClient.ModelImage> =
+        direct: List<AgentModelClient.ModelImage>,
+        cached: List<AgentModelClient.ModelImage>
+    ): List<AgentModelClient.ModelImage> =
         (direct + cached)
             .distinctBy { image -> "${image.mimeType}:${image.bytes}:${image.width}x${image.height}:${image.dataUrl.take(80)}" }
             .take(4)
@@ -629,14 +628,14 @@ internal object BreenoHooks {
     private fun newCompactId(): String =
         UUID.randomUUID().toString().replace("-", "")
 
-    private fun BreenoModelClient.ModelResponse.summary(): String =
+    private fun AgentModelClient.ModelResponse.summary(): String =
         when (this) {
-            is BreenoModelClient.ModelResponse.Text -> "text"
+            is AgentModelClient.ModelResponse.Text -> "text"
         }
 
     private data class TextRequest(
         val text: String,
-        val images: List<BreenoModelClient.ModelImage>,
+        val images: List<AgentModelClient.ModelImage>,
         val recordId: String,
         val originalRecordId: String,
         val sessionId: String,
