@@ -5,7 +5,6 @@ import fuck.andes.agent.model.AgentModelClient
 import fuck.andes.agent.runtime.AgentAppContext
 import fuck.andes.agent.terminal.RootShellTerminalController
 import fuck.andes.core.HookSupport
-import fuck.andes.core.ModuleLogger
 
 import android.content.Context
 import android.content.Intent
@@ -13,12 +12,14 @@ import android.content.pm.ApplicationInfo
 import android.content.pm.PackageManager
 import android.net.Uri
 import fuck.andes.config.Prefs
+import fuck.andes.core.AgentLogger
 import java.util.Locale
 import org.json.JSONArray
 import org.json.JSONObject
 
 internal class AgentLocalTools(
-    private val logger: ModuleLogger
+    private val logger: AgentLogger,
+    private val terminalToolsEnabled: Boolean = Prefs.isEnabled(Prefs.Keys.AGENT_TERMINAL_TOOLS)
 ) : AgentModelClient.ToolExecutor {
 
     private val deviceController = RootShellDeviceController(logger)
@@ -64,7 +65,7 @@ internal class AgentLocalTools(
         }
 
     private fun terminalTool(block: () -> String): String {
-        if (!Prefs.isEnabled(Prefs.Keys.AGENT_TERMINAL_TOOLS)) {
+        if (!terminalToolsEnabled) {
             return errorResult("TERMINAL_TOOLS_DISABLED", "请先启用终端/文件工具")
         }
         return block()

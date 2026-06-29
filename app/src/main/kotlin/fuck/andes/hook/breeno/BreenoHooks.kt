@@ -2,9 +2,8 @@ package fuck.andes.hook.breeno
 
 import fuck.andes.agent.model.AgentModelClient
 import fuck.andes.agent.runtime.AgentAppContext
-import fuck.andes.agent.runtime.AgentEvent
-import fuck.andes.agent.runtime.AgentRunController
-import fuck.andes.agent.tool.AgentLocalTools
+import fuck.andes.agent.runtime.AgentRuntimeClient
+import fuck.andes.agent.runtime.AgentRuntimeWire
 import fuck.andes.core.HookSupport
 import fuck.andes.core.ModuleLogger
 
@@ -38,7 +37,7 @@ internal object BreenoHooks {
     private const val MAX_TEXT_CHARS = 240
     private const val RAW_LOG_CHUNK_CHARS = 3_200
     private val modelExecutor = Executors.newSingleThreadExecutor { runnable ->
-        Thread(runnable, "FuckAndes-AgentModel").apply { isDaemon = true }
+        Thread(runnable, "FuckAndes-AgentBridge").apply { isDaemon = true }
     }
     private val cdmImageCache = ConcurrentHashMap<String, List<AgentModelClient.ModelImage>>()
 
@@ -195,29 +194,28 @@ internal object BreenoHooks {
         if (prompt.isBlank()) return false
 
         return runCatching {
-            BreenoExecutionOverlay.show("小布 Agent", "收到指令，准备调用模型")
-            val runController = AgentRunController()
             modelExecutor.execute {
                 val modelResponse = runCatching {
                     val config = AgentModelClient.loadConfig()
                     if (!Prefs.isEnabled(Prefs.Keys.AGENT_CUSTOM_MODEL)) {
                         error("请先在 FuckAndes 设置中启用“小布自定义模型”")
                     }
-                    AgentModelClient.complete(
-                        config,
-                        prompt,
-                        AgentLocalTools(logger),
-                        images = request.images,
-                        runController = runController
+                    val context = AgentAppContext.resolve()
+                        ?: error("无法获取小布进程 Context")
+                    val result = AgentRuntimeClient(context, logger).run(
+                        request = AgentRuntimeWire.RunRequest(
+                            prompt = prompt,
+                            config = config,
+                            images = request.images
+                        )
                     ) { event ->
                         logger.info("Agent event: ${event.toLogLine()}")
-                        BreenoExecutionOverlay.update("小布 Agent", event.toOverlayStatus())
                     }
+                    if (!result.ok) {
+                        error(result.error ?: "Agent Runtime 调用失败")
+                    }
+                    AgentModelClient.ModelResponse.Text(result.content)
                 }.getOrElse { throwable ->
-                    val event = AgentEvent.RunFailed(throwable.message ?: throwable.javaClass.simpleName)
-                    logger.info("Agent event: ${event.toLogLine()}")
-                    BreenoExecutionOverlay.update("小布 Agent", event.toOverlayStatus())
-                    BreenoExecutionOverlay.finish("调用失败：${throwable.message ?: throwable.javaClass.simpleName}")
                     AgentModelClient.ModelResponse.Text(
                         "小布自定义模型调用失败：${throwable.message ?: throwable.javaClass.simpleName}"
                     )
@@ -225,7 +223,6 @@ internal object BreenoHooks {
                 Handler(Looper.getMainLooper()).post {
                     runCatching {
                         injectModelResponse(classLoader, request.copy(text = prompt), modelResponse)
-                        BreenoExecutionOverlay.finish("已返回结果")
                         logger.info(
                             "Breeno custom model injected: ${modelResponse.summary()}, " +
                                 "recordId=${request.recordId}, sessionId=${request.sessionId}, " +
@@ -242,7 +239,6 @@ internal object BreenoHooks {
             )
             true
         }.getOrElse { throwable ->
-            BreenoExecutionOverlay.dismiss()
             logger.error("Breeno: 接管自定义模型请求失败，放行原请求", throwable)
             false
         }
@@ -553,45 +549,6 @@ internal object BreenoHooks {
             startsWith(EXPERIMENTAL_PREFIX) -> removePrefix(EXPERIMENTAL_PREFIX).trim()
             startsWith(EXPERIMENTAL_ADB_PREFIX) -> removePrefix(EXPERIMENTAL_ADB_PREFIX).trim()
             else -> null
-        }
-
-    private fun AgentEvent.toOverlayStatus(): String =
-        when (this) {
-            is AgentEvent.RunStarted -> "准备工具：$toolCount 个"
-            is AgentEvent.RoundStarted -> "第 $round 轮思考"
-            is AgentEvent.ProviderRequestStarted -> "正在请求模型"
-            is AgentEvent.ProviderResponseStarted -> "模型已响应：HTTP $httpCode"
-            is AgentEvent.AssistantTextDelta -> "正在生成回答"
-            is AgentEvent.ProviderToolCallDelta -> "正在生成工具参数"
-            is AgentEvent.AssistantReceived -> {
-                if (toolNames.isEmpty()) "正在整理回答" else "计划执行：${toolNames.joinToString("、") { it.toToolLabel() }}"
-            }
-            is AgentEvent.ToolStarted -> "执行工具：${name.toToolLabel()}"
-            is AgentEvent.ToolFinished -> "工具完成：${name.toToolLabel()}"
-            is AgentEvent.ToolImagesAttached -> "已读取图片：$imageCount 张"
-            is AgentEvent.RunFinished -> "正在返回结果"
-            is AgentEvent.RunFailed -> "调用失败"
-        }
-
-    private fun String.toToolLabel(): String =
-        when (this) {
-            "observe_screen" -> "观察屏幕"
-            "tap" -> "点击"
-            "tap_element" -> "点击元素"
-            "long_press" -> "长按"
-            "swipe" -> "滑动"
-            "scroll" -> "滚动"
-            "input_text" -> "输入文字"
-            "press_key" -> "按键"
-            "search_apps" -> "搜索应用"
-            "launch_app" -> "打开应用"
-            "open_uri" -> "打开链接"
-            "terminal" -> "终端"
-            "run_command" -> "执行命令"
-            "read_file" -> "读取文件"
-            "write_file" -> "写入文件"
-            "list_directory" -> "列出目录"
-            else -> this
         }
 
     private fun invokeCompatible(target: Any, methodName: String, vararg args: Any?): Any? {

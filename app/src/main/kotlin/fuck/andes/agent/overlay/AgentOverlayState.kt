@@ -1,0 +1,128 @@
+package fuck.andes.agent.overlay
+
+import androidx.compose.runtime.Immutable
+import fuck.andes.agent.runtime.AgentEvent
+
+/** Agent 浮窗所处的阶段。 */
+internal enum class AgentOverlayPhase { RUNNING, FINISHED, FAILED }
+
+/**
+ * Agent 浮窗的渲染状态。由 [AgentEvent] 流累积而来，[AgentOverlayContent] 直接消费。
+ */
+@Immutable
+internal data class AgentOverlayState(
+    val phase: AgentOverlayPhase = AgentOverlayPhase.RUNNING,
+    val round: Int = 0,
+    val statusText: String = "准备中…",
+    val detailText: String = "",
+) {
+    companion object {
+        val Initial = AgentOverlayState(statusText = "收到指令，准备调用模型")
+    }
+}
+
+/**
+ * 将一个 [AgentEvent] 折叠进当前渲染状态。
+ *
+ * 文案逻辑自原 `BreenoHooks.toOverlayStatus` 迁移：只保留面向用户的一句话状态，
+ * 工具名经 [toToolLabel] 中文化。详细 trace 流作为后续任务，此处不展开。
+ */
+internal fun AgentOverlayState.applyEvent(event: AgentEvent): AgentOverlayState = when (event) {
+    is AgentEvent.RunStarted -> copy(
+        phase = AgentOverlayPhase.RUNNING,
+        statusText = "准备工具：${event.toolCount} 个",
+    )
+
+    is AgentEvent.RoundStarted -> copy(
+        phase = AgentOverlayPhase.RUNNING,
+        round = event.round,
+        statusText = "第 ${event.round} 轮思考",
+    )
+
+    is AgentEvent.ProviderRequestStarted -> copy(
+        phase = AgentOverlayPhase.RUNNING,
+        round = event.round,
+        statusText = "正在请求模型",
+    )
+
+    is AgentEvent.ProviderResponseStarted -> copy(
+        phase = AgentOverlayPhase.RUNNING,
+        round = event.round,
+        statusText = "模型已响应",
+    )
+
+    is AgentEvent.AssistantTextDelta -> copy(
+        phase = AgentOverlayPhase.RUNNING,
+        round = event.round,
+        statusText = "正在生成回答",
+    )
+
+    is AgentEvent.ProviderToolCallDelta -> copy(
+        phase = AgentOverlayPhase.RUNNING,
+        round = event.round,
+        statusText = "正在生成工具参数",
+    )
+
+    is AgentEvent.AssistantReceived -> copy(
+        phase = AgentOverlayPhase.RUNNING,
+        round = event.round,
+        statusText = if (event.toolNames.isEmpty()) {
+            "正在整理回答"
+        } else {
+            "计划执行：${event.toolNames.joinToString("、") { it.toToolLabel() }}"
+        },
+    )
+
+    is AgentEvent.ToolStarted -> copy(
+        phase = AgentOverlayPhase.RUNNING,
+        round = event.round,
+        statusText = "执行工具：${event.name.toToolLabel()}",
+    )
+
+    is AgentEvent.ToolFinished -> copy(
+        phase = AgentOverlayPhase.RUNNING,
+        round = event.round,
+        statusText = "工具完成：${event.name.toToolLabel()}",
+    )
+
+    is AgentEvent.ToolImagesAttached -> copy(
+        phase = AgentOverlayPhase.RUNNING,
+        round = event.round,
+        statusText = "已读取图片：${event.imageCount} 张",
+    )
+
+    is AgentEvent.RunFinished -> copy(
+        phase = AgentOverlayPhase.FINISHED,
+        round = event.round,
+        statusText = "已返回结果",
+    )
+
+    is AgentEvent.RunFailed -> copy(
+        phase = AgentOverlayPhase.FAILED,
+        statusText = "调用失败",
+        detailText = event.reason,
+    )
+}
+
+/**
+ * 工具原始名 -> 中文标签。自原 `BreenoHooks.toToolLabel` 迁移，供渲染层共用。
+ */
+private fun String.toToolLabel(): String = when (this) {
+    "observe_screen" -> "观察屏幕"
+    "tap" -> "点击"
+    "tap_element" -> "点击元素"
+    "long_press" -> "长按"
+    "swipe" -> "滑动"
+    "scroll" -> "滚动"
+    "input_text" -> "输入文字"
+    "press_key" -> "按键"
+    "search_apps" -> "搜索应用"
+    "launch_app" -> "打开应用"
+    "open_uri" -> "打开链接"
+    "terminal" -> "终端"
+    "run_command" -> "执行命令"
+    "read_file" -> "读取文件"
+    "write_file" -> "写入文件"
+    "list_directory" -> "列出目录"
+    else -> this
+}

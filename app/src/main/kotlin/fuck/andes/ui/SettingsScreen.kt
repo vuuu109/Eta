@@ -27,6 +27,9 @@ import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.unit.dp
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
+import androidx.lifecycle.compose.LocalLifecycleOwner
 import fuck.andes.FuckAndesApp
 import fuck.andes.config.Prefs
 import fuck.andes.systemizer.GoogleAppSystemizerInstaller
@@ -84,6 +87,21 @@ internal fun SettingsScreen(context: Context) {
     var installingSystemizer by remember { mutableStateOf(false) }
     var editingTextPref by remember { mutableStateOf<TextPrefSpec?>(null) }
     var prefRevision by remember { mutableStateOf(0) }
+
+    // 悬浮窗权限状态：授权后从系统设置返回时（ON_RESUME）刷新。
+    var overlayGranted by remember {
+        mutableStateOf(android.provider.Settings.canDrawOverlays(context))
+    }
+    val lifecycleOwner = LocalLifecycleOwner.current
+    DisposableEffect(lifecycleOwner) {
+        val observer = LifecycleEventObserver { _, event ->
+            if (event == Lifecycle.Event.ON_RESUME) {
+                overlayGranted = android.provider.Settings.canDrawOverlays(context)
+            }
+        }
+        lifecycleOwner.lifecycle.addObserver(observer)
+        onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
+    }
 
     // prefs 绑定到 XposedService：service 到达时切换到 RemotePreferences（跨进程提交到
     // LSPosed 数据库）；未就绪时保持 null，UI 禁止修改。
@@ -268,6 +286,39 @@ internal fun SettingsScreen(context: Context) {
                         singleLine = false,
                         revision = prefRevision,
                         onClick = { editingTextPref = it },
+                    )
+                    PrefDivider()
+                    ArrowPreference(
+                        title = "悬浮窗权限",
+                        startAction = {
+                            TintedIcon(
+                                icon = MiuixIcons.Lock,
+                                tint = IconTintPurple,
+                            )
+                        },
+                        endActions = {
+                            Text(
+                                text = if (overlayGranted) "已授权" else "未授权",
+                                fontSize = MiuixTheme.textStyles.body2.fontSize,
+                                color = if (overlayGranted) {
+                                    MiuixTheme.colorScheme.onSurfaceVariantActions
+                                } else {
+                                    IconTintPurple
+                                },
+                            )
+                        },
+                        onClick = {
+                            if (!overlayGranted) {
+                                runCatching {
+                                    context.startActivity(
+                                        android.content.Intent(
+                                            android.provider.Settings.ACTION_MANAGE_OVERLAY_PERMISSION,
+                                            android.net.Uri.parse("package:${context.packageName}"),
+                                        ),
+                                    )
+                                }
+                            }
+                        },
                     )
                 }
             }

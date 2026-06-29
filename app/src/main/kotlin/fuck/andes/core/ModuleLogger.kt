@@ -5,19 +5,19 @@ import android.util.Log
 import io.github.libxposed.api.XposedModule
 import java.util.concurrent.ConcurrentHashMap
 
-internal class ModuleLogger(private val module: XposedModule) {
+internal class ModuleLogger(private val module: XposedModule) : AgentLogger {
     private val throttledLogs = ConcurrentHashMap<String, Long>()
 
-    fun debug(message: String) {
+    override fun debug(message: String) {
         if (!ModuleConfig.ENABLE_VERBOSE_LOGS) return
         module.log(Log.DEBUG, ModuleConfig.TAG, message)
     }
 
-    fun info(message: String) {
+    override fun info(message: String) {
         module.log(Log.INFO, ModuleConfig.TAG, message)
     }
 
-    fun warn(message: String) {
+    override fun warn(message: String) {
         module.log(Log.WARN, ModuleConfig.TAG, message)
     }
 
@@ -31,7 +31,7 @@ internal class ModuleLogger(private val module: XposedModule) {
         }
     }
 
-    fun error(message: String, throwable: Throwable? = null) {
+    override fun error(message: String, throwable: Throwable?) {
         if (throwable == null) {
             module.log(Log.ERROR, ModuleConfig.TAG, message)
         } else {

@@ -1,6 +1,6 @@
 package fuck.andes.agent.terminal
 
-import fuck.andes.core.ModuleLogger
+import fuck.andes.core.AgentLogger
 
 import java.io.ByteArrayOutputStream
 import java.io.File
@@ -11,7 +11,7 @@ import org.json.JSONArray
 import org.json.JSONObject
 
 internal class RootShellTerminalController(
-    private val logger: ModuleLogger
+    private val logger: AgentLogger
 ) {
     private companion object {
         const val DEFAULT_CWD = "/data/local/tmp/fuck_andes"

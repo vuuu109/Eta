@@ -2,7 +2,7 @@ package fuck.andes.agent.device
 
 import fuck.andes.agent.media.AgentImageCodec
 import fuck.andes.agent.model.AgentModelClient
-import fuck.andes.core.ModuleLogger
+import fuck.andes.core.AgentLogger
 
 import android.graphics.Rect
 import java.io.IOException
@@ -15,7 +15,7 @@ import org.xmlpull.v1.XmlPullParser
 import org.xmlpull.v1.XmlPullParserFactory
 
 internal class RootShellDeviceController(
-    private val logger: ModuleLogger
+    private val logger: AgentLogger
 ) {
     data class Observation(
         val content: String,
