@@ -71,10 +71,13 @@ dependencies {
     implementation(libs.miuix.preference)
     implementation(libs.miuix.icons)
     implementation(libs.miuix.navigation3.ui)
+    implementation(libs.lucide.icons)
     implementation(libs.androidx.navigation3.runtime)
     implementation(libs.activity.compose)
     implementation(libs.markdown.renderer)
     implementation(libs.markdown.renderer.m3)
+    // markdown-renderer-m3 将 material3 作为 compileOnly，需显式引入以满足运行时依赖
+    implementation("androidx.compose.material3:material3:1.3.1")
 
     testImplementation(libs.junit)
     testImplementation(libs.json)

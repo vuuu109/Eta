@@ -9,6 +9,7 @@ import androidx.compose.foundation.layout.only
 import androidx.compose.foundation.layout.safeDrawing
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
 import fuck.andes.ui.components.ConversationSidePaneScaffold
 import fuck.andes.ui.model.ConversationPaneUiState
 import fuck.andes.ui.navigation.AppRoute
@@ -17,9 +18,10 @@ import top.yukonga.miuix.kmp.basic.IconButton
 import top.yukonga.miuix.kmp.basic.Scaffold
 import top.yukonga.miuix.kmp.basic.SmallTopAppBar
 import top.yukonga.miuix.kmp.icon.MiuixIcons
+import top.yukonga.miuix.kmp.icon.extended.AddCircle
 import top.yukonga.miuix.kmp.icon.extended.Back
 import top.yukonga.miuix.kmp.icon.extended.HorizontalSplit
-import top.yukonga.miuix.kmp.icon.extended.Messages
+import top.yukonga.miuix.kmp.theme.MiuixTheme
 
 /**
  * Agent App 统一壳层。
@@ -41,7 +43,6 @@ fun AgentAppShell(
     onNewConversation: () -> Unit,
     onSelectConversation: (String) -> Unit,
     onOpenTools: () -> Unit,
-    onOpenRuns: () -> Unit,
     onOpenPermissions: () -> Unit,
     onOpenSettings: () -> Unit,
     modifier: Modifier = Modifier,
@@ -76,10 +77,8 @@ fun AgentAppShell(
                 onOpen = onOpenConversationPane,
                 onDismiss = onDismissConversationPane,
                 onSearchChange = onSearchConversations,
-                onNewConversation = onNewConversation,
                 onConversationSelected = onSelectConversation,
                 onOpenSettings = onOpenSettings,
-                onOpenRuns = onOpenRuns,
                 onOpenTools = onOpenTools,
                 onOpenPermissions = onOpenPermissions,
             ) {
@@ -101,6 +100,7 @@ private fun AgentTopBar(
     val isHome = route is AppRoute.Home
     SmallTopAppBar(
         title = titleForRoute(route),
+        color = if (route is AppRoute.Tools) Color.Transparent else MiuixTheme.colorScheme.surface,
         navigationIcon = {
             if (isHome) {
                 IconButton(onClick = onOpenConversationPane) {
@@ -122,7 +122,7 @@ private fun AgentTopBar(
             if (isHome) {
                 IconButton(onClick = onNewConversation) {
                     Icon(
-                        imageVector = MiuixIcons.Messages,
+                        imageVector = MiuixIcons.AddCircle,
                         contentDescription = "新建对话",
                     )
                 }
@@ -135,8 +135,6 @@ private fun AgentTopBar(
 private fun titleForRoute(route: AppRoute?): String = when (route) {
     is AppRoute.Home -> ""
     is AppRoute.Chat -> "对话"
-    is AppRoute.Runs -> "运行历史"
-    is AppRoute.RunDetail -> "运行详情"
     is AppRoute.Tools -> "工具能力"
     is AppRoute.Permissions -> "权限健康"
     is AppRoute.SystemEnhance -> "系统增强"

@@ -6,7 +6,6 @@ import android.content.SharedPreferences
 import android.os.SystemClock
 import android.provider.Settings
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableStateMapOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import fuck.andes.FuckAndesApp
@@ -21,8 +20,6 @@ import fuck.andes.core.AndroidAgentLogger
 import fuck.andes.ui.model.AgentChatHomeUiState
 import fuck.andes.ui.model.AgentChatMessageUi
 import fuck.andes.ui.model.AgentMessageUi
-import fuck.andes.ui.model.AgentRunDetailUiState
-import fuck.andes.ui.model.AgentRunsUiState
 import fuck.andes.ui.model.AgentSystemEnhanceUiState
 import fuck.andes.ui.model.AgentToolsUiState
 import fuck.andes.ui.model.ConversationModeUi
@@ -31,9 +28,6 @@ import fuck.andes.ui.model.ConversationSummaryUi
 import fuck.andes.ui.model.PermissionHealthItemUi
 import fuck.andes.ui.model.PermissionHealthUiState
 import fuck.andes.ui.model.PermissionStatusUi
-import fuck.andes.ui.model.RunStatusUi
-import fuck.andes.ui.model.RunSummaryUi
-import fuck.andes.ui.model.RunTimelineItemUi
 import fuck.andes.ui.model.SystemEnhanceItemUi
 import fuck.andes.ui.model.SystemEnhanceSectionUi
 import fuck.andes.ui.model.SystemEnhanceStatusUi
@@ -59,8 +53,6 @@ internal class AgentAppState(
 ) {
     private val appContext = context.applicationContext
     private val timeFormat = SimpleDateFormat("HH:mm", Locale.getDefault())
-    private val runDetails = mutableStateMapOf<String, AgentRunDetailUiState>()
-    private val runStarts = mutableMapOf<String, Long>()
     private val runToolCounts = mutableMapOf<String, Int>()
     private val runConversationIds = mutableMapOf<String, String>()
     private val runThinkingStartedAt = mutableMapOf<String, Long>()
@@ -94,9 +86,6 @@ internal class AgentAppState(
     )
         private set
 
-    var runsState by mutableStateOf(AgentRunsUiState(emptyList()))
-        private set
-
     var toolsState by mutableStateOf(buildToolsState())
         private set
 
@@ -108,6 +97,71 @@ internal class AgentAppState(
 
     init {
         refreshConversationSummaries()
+        scope.launch(Dispatchers.IO) { recoverOrphanedRuns() }
+    }
+
+    /**
+     * App 进程可能在 Agent 操作手机期间被系统杀死，导致最终结果未能更新到会话。
+     * 从 Runtime 进程拉取未交付的结果，补回对应会话的 assistant 消息。
+     */
+    private suspend fun recoverOrphanedRuns() {
+        val client = AgentRuntimeClient(appContext, AndroidAgentLogger)
+        val completedRuns = runCatching {
+            client.drainCompletedRuns()
+        }.getOrElse { throwable ->
+            AndroidAgentLogger.warn("Agent UI: drain 未交付结果失败: ${throwable.message ?: throwable.javaClass.simpleName}")
+            emptyList()
+        }
+        if (completedRuns.isEmpty()) return
+        val ours = completedRuns.filter { it.handoff.source == HANDOFF_SOURCE }
+        if (ours.isEmpty()) return
+        withContext(Dispatchers.Main) {
+            ours.forEach { completedRun ->
+                val runId = completedRun.result.runId.ifBlank { completedRun.handoff.id }
+                val conversationId = completedRun.handoff.payload
+                val state = conversationsById[conversationId] ?: return@forEach
+                val alreadyHasResult = state.messages.any {
+                    it is AgentMessageUi && it.id == "assistant-$runId" && !it.isStreaming
+                }
+                if (alreadyHasResult) {
+                    scope.launch(Dispatchers.IO) { client.ackResult(runId) }
+                    return@forEach
+                }
+                val result = completedRun.result
+                val content = if (result.ok) {
+                    result.content.ifBlank { "已完成。" }
+                } else {
+                    result.error ?: "Agent Runtime 调用失败"
+                }
+                val updatedMessages = state.messages.map { message ->
+                    if (message is AgentMessageUi && message.id == "assistant-$runId") {
+                        message.copy(
+                            content = content,
+                            isStreaming = false,
+                            renderMarkdown = result.ok,
+                        )
+                    } else {
+                        message
+                    }
+                }.let { messages ->
+                    // 如果 assistant 消息不存在（进程被杀时未持久化空 streaming），补一条
+                    if (messages.none { it is AgentMessageUi && it.id == "assistant-$runId" }) {
+                        messages + AgentMessageUi(
+                            id = "assistant-$runId",
+                            content = content,
+                            isStreaming = false,
+                            renderMarkdown = result.ok,
+                        )
+                    } else {
+                        messages
+                    }
+                }
+                updateConversation(conversationId, state.copy(messages = updatedMessages, isStreaming = false))
+                scope.launch(Dispatchers.IO) { client.ackResult(runId) }
+            }
+            refreshConversationSummaries()
+            persistConversations()
+        }
     }
 
     fun updateInput(text: String) {
@@ -154,7 +208,6 @@ internal class AgentAppState(
         val history = buildConversationHistory(homeState.messages)
         val thinkingEnabled = homeState.thinkingEnabled
         val runId = "run-${UUID.randomUUID()}"
-        val now = System.currentTimeMillis()
         val userMessage = UserMessageUi(id = "user-$runId", content = prompt)
         val assistantMessage = AgentMessageUi(
             id = "assistant-$runId",
@@ -168,7 +221,6 @@ internal class AgentAppState(
             ?: prompt.lineSequence().firstOrNull().orEmpty().trim().take(MAX_TITLE_CHARS).ifBlank { "新对话" }
 
         conversationTitles = conversationTitles + (selectedConversationId to title)
-        runStarts[runId] = SystemClock.elapsedRealtime()
         runToolCounts[runId] = 0
         runConversationIds[runId] = conversationId
 
@@ -179,34 +231,6 @@ internal class AgentAppState(
                 isStreaming = true,
                 messages = homeState.messages + userMessage + assistantMessage,
             )
-        )
-        putRunSummary(
-            RunSummaryUi(
-                runId = runId,
-                status = RunStatusUi.Running,
-                title = title,
-                timeLabel = timeFormat.format(Date(now)),
-                toolCount = 0,
-                durationLabel = "运行中",
-            )
-        )
-        runDetails[runId] = AgentRunDetailUiState(
-            runId = runId,
-            status = RunStatusUi.Running,
-            title = title,
-            startedAt = timeFormat.format(Date(now)),
-            finishedAt = null,
-            durationLabel = null,
-            timeline = listOf(
-                RunTimelineItemUi.UserRequest(
-                    id = "$runId-user",
-                    content = prompt,
-                ),
-                RunTimelineItemUi.ModelThinking(
-                    id = "$runId-starting",
-                    content = "准备调用 Agent Runtime",
-                ),
-            ),
         )
         refreshConversationSummaries()
         persistConversations()
@@ -220,6 +244,11 @@ internal class AgentAppState(
                     config = config,
                     images = emptyList(),
                     history = history,
+                    handoff = AgentRuntimeWire.EntryHandoff(
+                        id = runId,
+                        source = HANDOFF_SOURCE,
+                        payload = conversationId,
+                    ),
                 ),
                 onEvent = { event -> applyRunEvent(runId, event) },
             )
@@ -229,58 +258,12 @@ internal class AgentAppState(
         }
     }
 
-    fun detailState(runId: String): AgentRunDetailUiState =
-        runDetails[runId] ?: AgentRunDetailUiState(
-            runId = runId,
-            status = RunStatusUi.Failed,
-            title = "运行不存在",
-            startedAt = "",
-            finishedAt = null,
-            durationLabel = null,
-            timeline = listOf(
-                RunTimelineItemUi.Error(
-                    id = "$runId-missing",
-                    message = "当前会话内没有找到这个 run",
-                )
-            ),
-        )
-
     fun refreshPermissionHealth() {
         permissionHealthState = buildPermissionHealthState(appContext)
     }
 
     private fun applyRunEvent(runId: String, event: AgentEvent) {
         when (event) {
-            is AgentEvent.RunStarted -> {
-                appendTimeline(
-                    runId,
-                    RunTimelineItemUi.ModelThinking(
-                        id = "$runId-runtime",
-                        content = "Runtime 已启动，工具 ${event.toolCount} 个，终端工具${if (event.terminalTools) "已启用" else "未启用"}",
-                    )
-                )
-            }
-
-            is AgentEvent.ProviderRequestStarted -> {
-                appendTimeline(
-                    runId,
-                    RunTimelineItemUi.ModelThinking(
-                        id = "$runId-provider-${event.round}",
-                        content = "第 ${event.round} 轮请求模型",
-                    )
-                )
-            }
-
-            is AgentEvent.ProviderResponseStarted -> {
-                appendTimeline(
-                    runId,
-                    RunTimelineItemUi.ModelThinking(
-                        id = "$runId-http-${event.round}",
-                        content = "模型开始响应，HTTP ${event.httpCode}",
-                    )
-                )
-            }
-
             is AgentEvent.AssistantTextDelta -> {
                 appendAssistantDelta(runId, event.delta)
             }
@@ -296,7 +279,6 @@ internal class AgentAppState(
             is AgentEvent.ToolStarted -> {
                 val count = (runToolCounts[runId] ?: 0) + 1
                 runToolCounts[runId] = count
-                updateRunToolCount(runId, count)
                 appendMessageOnce(
                     runId,
                     ToolActivityMessageUi(
@@ -306,49 +288,16 @@ internal class AgentAppState(
                         argumentsSummary = event.argsPreview,
                     )
                 )
-                appendTimeline(
-                    runId,
-                    RunTimelineItemUi.ToolCall(
-                        id = "$runId-tool-call-$count",
-                        toolName = event.name,
-                        argumentsSummary = event.argsPreview,
-                    )
-                )
                 refreshConversationSummaries()
             }
 
             is AgentEvent.ToolFinished -> {
                 updateToolActivityFinished(runId, event)
-                appendTimeline(
-                    runId,
-                    RunTimelineItemUi.ToolResult(
-                        id = "$runId-tool-result-${event.round}-${event.name}",
-                        success = true,
-                        summary = event.resultSummary,
-                    )
-                )
-            }
-
-            is AgentEvent.ToolImagesAttached -> {
-                appendTimeline(
-                    runId,
-                    RunTimelineItemUi.Screenshot(
-                        id = "$runId-tool-image-${event.round}-${event.toolName}",
-                        description = "${event.toolName} 返回 ${event.imageCount} 张观察图片",
-                    )
-                )
             }
 
             is AgentEvent.RunFailed -> {
                 finalizeThinking(runId)
                 markRunningToolsFailed(runId, event.reason)
-                appendTimeline(
-                    runId,
-                    RunTimelineItemUi.Error(
-                        id = "$runId-event-error",
-                        message = event.reason,
-                    )
-                )
             }
 
             is AgentEvent.AssistantReceived -> {
@@ -361,14 +310,16 @@ internal class AgentAppState(
                 finalizeThinking(runId)
             }
 
+            is AgentEvent.RunStarted,
+            is AgentEvent.ProviderRequestStarted,
+            is AgentEvent.ProviderResponseStarted,
+            is AgentEvent.ToolImagesAttached,
             is AgentEvent.RoundStarted,
             is AgentEvent.ProviderToolCallDelta -> Unit
         }
     }
 
     private fun applyRunResult(runId: String, result: AgentRuntimeWire.RunResult) {
-        val duration = durationLabel(runId)
-        val status = if (result.ok) RunStatusUi.Success else RunStatusUi.Failed
         val content = if (result.ok) {
             result.content.ifBlank { "已完成。" }
         } else {
@@ -382,28 +333,6 @@ internal class AgentAppState(
             renderMarkdown = result.ok,
         )
         setConversationStreaming(runId, false)
-        updateRunStatus(runId, status, duration)
-        appendTimeline(
-            runId,
-            if (result.ok) {
-                RunTimelineItemUi.FinalResult(
-                    id = "$runId-final",
-                    content = content,
-                )
-            } else {
-                RunTimelineItemUi.Error(
-                    id = "$runId-final-error",
-                    message = content,
-                )
-            }
-        )
-        runDetails[runId]?.let { detail ->
-            runDetails[runId] = detail.copy(
-                status = status,
-                finishedAt = timeFormat.format(Date()),
-                durationLabel = duration,
-            )
-        }
         refreshConversationSummaries()
         persistConversations()
     }
@@ -628,38 +557,6 @@ internal class AgentAppState(
         return conversationsById[conversationId] ?: emptyChatState(defaultThinkingEnabled)
     }
 
-    private fun appendTimeline(runId: String, item: RunTimelineItemUi) {
-        val detail = runDetails[runId] ?: return
-        if (detail.timeline.any { it.id == item.id }) return
-        runDetails[runId] = detail.copy(timeline = detail.timeline + item)
-    }
-
-    private fun putRunSummary(summary: RunSummaryUi) {
-        runsState = runsState.copy(
-            runs = listOf(summary) + runsState.runs.filterNot { it.runId == summary.runId },
-        )
-    }
-
-    private fun updateRunToolCount(runId: String, toolCount: Int) {
-        runsState = runsState.copy(
-            runs = runsState.runs.map { run ->
-                if (run.runId == runId) run.copy(toolCount = toolCount) else run
-            }
-        )
-    }
-
-    private fun updateRunStatus(runId: String, status: RunStatusUi, duration: String) {
-        runsState = runsState.copy(
-            runs = runsState.runs.map { run ->
-                if (run.runId == runId) {
-                    run.copy(status = status, durationLabel = duration)
-                } else {
-                    run
-                }
-            }
-        )
-    }
-
     private fun refreshConversationSummaries() {
         val summaries = conversationsById.entries
             .sortedByDescending { (id, _) ->
@@ -748,13 +645,8 @@ internal class AgentAppState(
         return selected.asReversed()
     }
 
-    private fun durationLabel(runId: String): String {
-        val started = runStarts[runId] ?: return ""
-        val seconds = ((SystemClock.elapsedRealtime() - started) / 1000).coerceAtLeast(0)
-        return "${seconds} 秒"
-    }
-
     private companion object {
+        const val HANDOFF_SOURCE = "agent_ui"
         const val MAX_TITLE_CHARS = 24
         const val MAX_PREVIEW_CHARS = 48
         const val MAX_CONTEXT_MESSAGES = 12

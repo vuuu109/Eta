@@ -20,8 +20,6 @@ import androidx.navigation3.ui.NavDisplay
 import fuck.andes.ui.SettingsScreen
 import fuck.andes.ui.model.AgentChatAction
 import fuck.andes.ui.model.AgentHomeAction
-import fuck.andes.ui.model.AgentRunDetailAction
-import fuck.andes.ui.model.AgentRunsAction
 import fuck.andes.ui.model.AgentSystemEnhanceAction
 import fuck.andes.ui.model.AgentToolsAction
 import fuck.andes.ui.model.PermissionHealthAction
@@ -31,8 +29,6 @@ import fuck.andes.ui.screens.chat.AgentChatScreen
 import fuck.andes.ui.screens.enhance.SystemEnhanceScreen
 import fuck.andes.ui.screens.home.AgentHomeScreen
 import fuck.andes.ui.screens.permissions.PermissionHealthScreen
-import fuck.andes.ui.screens.rundetail.AgentRunDetailScreen
-import fuck.andes.ui.screens.runs.AgentRunsScreen
 import fuck.andes.ui.screens.tools.AgentToolsScreen
 
 /**
@@ -93,7 +89,6 @@ fun AgentAppRoot() {
             onNewConversation = { createConversation() },
             onSelectConversation = { conversationId -> selectConversation(conversationId) },
             onOpenTools = { pushRoute(AppRoute.Tools) },
-            onOpenRuns = { pushRoute(AppRoute.Runs) },
             onOpenPermissions = { pushRoute(AppRoute.Permissions) },
             onOpenSettings = { pushRoute(AppRoute.Settings) },
         ) { padding ->
@@ -118,7 +113,6 @@ fun AgentAppRoot() {
                                 AgentHomeAction.OpenAttachment -> Unit
                                 AgentHomeAction.StartVoice -> Unit
                                 AgentHomeAction.OpenTools -> pushRoute(AppRoute.Tools)
-                                AgentHomeAction.OpenRuns -> pushRoute(AppRoute.Runs)
                                 AgentHomeAction.OpenPermissions -> pushRoute(AppRoute.Permissions)
                                 AgentHomeAction.OpenSystemEnhance -> pushRoute(AppRoute.SystemEnhance)
                                 AgentHomeAction.OpenSettings -> pushRoute(AppRoute.Settings)
@@ -139,32 +133,6 @@ fun AgentAppRoot() {
                                 is AgentChatAction.ThinkingToggled -> agentState.updateThinkingEnabled(action.enabled)
                                 AgentChatAction.SendMessage -> agentState.sendCurrentMessage()
                                 AgentChatAction.AttachScreenContext -> Unit
-                            }
-                        },
-                    )
-                }
-            }
-            entry<AppRoute.Runs> {
-                RoutedShell(route = AppRoute.Runs) {
-                    AgentRunsScreen(
-                        state = agentState.runsState,
-                        onAction = { action ->
-                            when (action) {
-                                AgentRunsAction.NavigateBack -> popRoute()
-                                is AgentRunsAction.OpenRun -> pushRoute(AppRoute.RunDetail(action.runId))
-                            }
-                        },
-                    )
-                }
-            }
-            entry<AppRoute.RunDetail> { route ->
-                RoutedShell(route = route) {
-                    AgentRunDetailScreen(
-                        state = agentState.detailState(route.runId),
-                        onAction = { action ->
-                            when (action) {
-                                AgentRunDetailAction.NavigateBack -> popRoute()
-                                is AgentRunDetailAction.RetryRun -> Unit
                             }
                         },
                     )

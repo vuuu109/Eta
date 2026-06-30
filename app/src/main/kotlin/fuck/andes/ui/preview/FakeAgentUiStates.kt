@@ -3,8 +3,6 @@ package fuck.andes.ui.preview
 import fuck.andes.ui.model.AgentChatHomeUiState
 import fuck.andes.ui.model.AgentChatMessageUi
 import fuck.andes.ui.model.AgentChatUiState
-import fuck.andes.ui.model.AgentRunDetailUiState
-import fuck.andes.ui.model.AgentRunsUiState
 import fuck.andes.ui.model.AgentSystemEnhanceUiState
 import fuck.andes.ui.model.AgentToolsUiState
 import fuck.andes.ui.model.ConversationModeUi
@@ -13,9 +11,6 @@ import fuck.andes.ui.model.ConversationSummaryUi
 import fuck.andes.ui.model.PermissionHealthItemUi
 import fuck.andes.ui.model.PermissionHealthUiState
 import fuck.andes.ui.model.PermissionStatusUi
-import fuck.andes.ui.model.RunStatusUi
-import fuck.andes.ui.model.RunSummaryUi
-import fuck.andes.ui.model.RunTimelineItemUi
 import fuck.andes.ui.model.SystemEnhanceItemUi
 import fuck.andes.ui.model.SystemEnhanceSectionUi
 import fuck.andes.ui.model.SystemEnhanceStatusUi
@@ -176,92 +171,6 @@ object FakeAgentUiStates {
                 summary = "电池优化未关闭，长任务可能被中断",
                 status = PermissionStatusUi.Warning,
                 primaryActionLabel = "设置",
-            ),
-        ),
-    )
-
-    val runDetail = AgentRunDetailUiState(
-        runId = "run-002",
-        status = RunStatusUi.Success,
-        title = "打开网易云音乐播放每日推荐",
-        startedAt = "10:23:04",
-        finishedAt = "10:23:12",
-        durationLabel = "8 秒",
-        timeline = listOf(
-            RunTimelineItemUi.UserRequest(
-                id = "t-01",
-                content = "打开网易云音乐播放每日推荐",
-            ),
-            RunTimelineItemUi.ModelThinking(
-                id = "t-02",
-                content = "用户想听音乐。我需要：1）打开网易云音乐；2）找到每日推荐；3）点击播放。",
-            ),
-            RunTimelineItemUi.ToolCall(
-                id = "t-03",
-                toolName = "open_app",
-                argumentsSummary = "packageName: com.netease.cloudmusic",
-            ),
-            RunTimelineItemUi.ToolResult(
-                id = "t-04",
-                success = true,
-                summary = "应用已启动",
-            ),
-            RunTimelineItemUi.Screenshot(
-                id = "t-05",
-                description = "已截取网易云音乐首页，识别到“每日推荐”入口",
-            ),
-            RunTimelineItemUi.ToolCall(
-                id = "t-06",
-                toolName = "click_text",
-                argumentsSummary = "text: 每日推荐",
-            ),
-            RunTimelineItemUi.ToolResult(
-                id = "t-07",
-                success = true,
-                summary = "点击进入每日推荐页面",
-            ),
-            RunTimelineItemUi.ToolCall(
-                id = "t-08",
-                toolName = "click",
-                argumentsSummary = "播放按钮",
-            ),
-            RunTimelineItemUi.ToolResult(
-                id = "t-09",
-                success = true,
-                summary = "开始播放",
-            ),
-            RunTimelineItemUi.FinalResult(
-                id = "t-10",
-                content = "已为你打开网易云音乐并开始播放每日推荐。",
-            ),
-        ),
-    )
-
-    val runs = AgentRunsUiState(
-        runs = listOf(
-            RunSummaryUi(
-                runId = "run-002",
-                status = RunStatusUi.Success,
-                title = "打开网易云音乐播放每日推荐",
-                timeLabel = "10:23",
-                toolCount = 4,
-                durationLabel = "8 秒",
-            ),
-            RunSummaryUi(
-                runId = "run-003",
-                status = RunStatusUi.Failed,
-                title = "在 Chrome 中搜索 Pixel 9 评测",
-                timeLabel = "昨天",
-                toolCount = 2,
-                durationLabel = "15 秒",
-            ),
-            RunSummaryUi(
-                runId = "run-004",
-                status = RunStatusUi.Success,
-                title = "截图并总结当前聊天内容",
-                timeLabel = "昨天",
-                toolCount = 6,
-                durationLabel = "22 秒",
             ),
         ),
     )

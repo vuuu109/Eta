@@ -3,26 +3,31 @@ package fuck.andes.ui.screens.permissions
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.items
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
+import fuck.andes.ui.components.ArrowItem
+import fuck.andes.ui.components.PrefDivider
+import fuck.andes.ui.components.TintedIcon
+import fuck.andes.ui.components.color
+import fuck.andes.ui.components.label
 import fuck.andes.ui.model.PermissionHealthAction
 import fuck.andes.ui.model.PermissionHealthItemUi
+import fuck.andes.ui.model.PermissionHealthUiState
 import fuck.andes.ui.model.PermissionStatusUi
-import top.yukonga.miuix.kmp.basic.BasicComponent
 import top.yukonga.miuix.kmp.basic.Card
-import top.yukonga.miuix.kmp.basic.Icon
+import top.yukonga.miuix.kmp.basic.SmallTitle
 import top.yukonga.miuix.kmp.basic.Text
 import top.yukonga.miuix.kmp.icon.MiuixIcons
 import top.yukonga.miuix.kmp.icon.basic.Check
 import top.yukonga.miuix.kmp.icon.extended.Close
+import top.yukonga.miuix.kmp.icon.extended.Lock
 import top.yukonga.miuix.kmp.icon.extended.Report
 import top.yukonga.miuix.kmp.theme.MiuixTheme
 
 @Composable
 fun PermissionHealthScreen(
-    state: fuck.andes.ui.model.PermissionHealthUiState,
+    state: PermissionHealthUiState,
     onAction: (PermissionHealthAction) -> Unit,
     modifier: Modifier = Modifier,
 ) {
@@ -30,22 +35,21 @@ fun PermissionHealthScreen(
         modifier = modifier,
         contentPadding = PaddingValues(bottom = 12.dp),
     ) {
-        item(key = "summary") {
-            Text(
-                text = "Agent 需要以下权限才能观察和操作手机。缺失的权限会影响部分工具可用性。",
-                modifier = Modifier.padding(horizontal = 16.dp, vertical = 12.dp),
-                style = MiuixTheme.textStyles.body2,
-                color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
-            )
+        item(key = "title") {
+            SmallTitle("权限与状态")
         }
-        items(
-            items = state.items,
-            key = { it.id },
-        ) { item ->
-            PermissionItemRow(
-                item = item,
-                onActionClick = { onAction(PermissionHealthAction.OpenItemAction(item.id)) },
-            )
+        item(key = "card") {
+            Card(modifier = Modifier.padding(horizontal = 12.dp)) {
+                state.items.forEachIndexed { index, item ->
+                    PermissionItemRow(
+                        item = item,
+                        onActionClick = { onAction(PermissionHealthAction.OpenItemAction(item.id)) },
+                    )
+                    if (index < state.items.lastIndex) {
+                        PrefDivider()
+                    }
+                }
+            }
         }
     }
 }
@@ -55,57 +59,24 @@ private fun PermissionItemRow(
     item: PermissionHealthItemUi,
     onActionClick: () -> Unit,
 ) {
-    Card(
-        modifier = Modifier
-            .padding(horizontal = 12.dp, vertical = 6.dp),
-    ) {
-        BasicComponent(
-            title = item.title,
-            summary = item.summary,
-            startAction = {
-                PermissionStatusIcon(status = item.status)
-            },
-            endActions = {
-                item.primaryActionLabel?.let { label ->
-                    Text(
-                        text = label,
-                        style = MiuixTheme.textStyles.body2,
-                        color = MiuixTheme.colorScheme.primary,
-                    )
-                }
-            },
-            onClick = if (item.primaryActionLabel != null) onActionClick else null,
-        )
+    val icon = when (item.status) {
+        PermissionStatusUi.Available -> MiuixIcons.Basic.Check
+        PermissionStatusUi.Warning -> MiuixIcons.Report
+        PermissionStatusUi.Missing -> MiuixIcons.Close
+        PermissionStatusUi.Disabled -> MiuixIcons.Lock
     }
-}
-
-@Composable
-private fun PermissionStatusIcon(status: PermissionStatusUi) {
-    val tint = when (status) {
-        PermissionStatusUi.Available -> MiuixTheme.colorScheme.primary
-        PermissionStatusUi.Warning -> MiuixTheme.colorScheme.primary
-        PermissionStatusUi.Missing,
-        PermissionStatusUi.Disabled -> MiuixTheme.colorScheme.onSurfaceVariantActions
-    }
-    when (status) {
-        PermissionStatusUi.Available -> Icon(
-            imageVector = MiuixIcons.Basic.Check,
-            contentDescription = null,
-            modifier = Modifier.padding(end = 16.dp),
-            tint = tint,
-        )
-        PermissionStatusUi.Warning -> Icon(
-            imageVector = MiuixIcons.Report,
-            contentDescription = null,
-            modifier = Modifier.padding(end = 16.dp),
-            tint = tint,
-        )
-        PermissionStatusUi.Missing,
-        PermissionStatusUi.Disabled -> Icon(
-            imageVector = MiuixIcons.Close,
-            contentDescription = null,
-            modifier = Modifier.padding(end = 16.dp),
-            tint = tint,
-        )
-    }
+    val tint = item.status.color()
+    ArrowItem(
+        title = item.title,
+        summary = item.summary,
+        startAction = { TintedIcon(icon = icon, tint = tint) },
+        endActions = {
+            Text(
+                text = item.status.label(),
+                fontSize = MiuixTheme.textStyles.body2.fontSize,
+                color = item.status.color(),
+            )
+        },
+        onClick = onActionClick,
+    )
 }

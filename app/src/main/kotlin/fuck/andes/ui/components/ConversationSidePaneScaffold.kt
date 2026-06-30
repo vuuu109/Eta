@@ -40,11 +40,13 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.pointer.PointerInputChange
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.zIndex
+import com.composables.icons.lucide.R as LucideR
 import fuck.andes.ui.model.ConversationPaneUiState
 import fuck.andes.ui.model.ConversationSummaryUi
 import kotlin.math.roundToInt
@@ -52,14 +54,32 @@ import top.yukonga.miuix.kmp.basic.Icon
 import top.yukonga.miuix.kmp.basic.IconButton
 import top.yukonga.miuix.kmp.basic.InputField
 import top.yukonga.miuix.kmp.basic.SearchBar
+import top.yukonga.miuix.kmp.basic.Surface
 import top.yukonga.miuix.kmp.basic.Text
-import top.yukonga.miuix.kmp.icon.MiuixIcons
-import top.yukonga.miuix.kmp.icon.extended.AddCircle
-import top.yukonga.miuix.kmp.icon.extended.Folder
-import top.yukonga.miuix.kmp.icon.extended.Lock
-import top.yukonga.miuix.kmp.icon.extended.Recent
-import top.yukonga.miuix.kmp.icon.extended.Settings
 import top.yukonga.miuix.kmp.theme.MiuixTheme
+
+private object DrawerMetrics {
+    val PaneMaxWidth = 340.dp
+    val PaneWidthFraction = 0.84f
+    val EdgeSwipeWidth = 36.dp
+    val PaneHorizontalPadding = 16.dp
+    val TopInset = 16.dp
+    val AfterActionBar = 18.dp
+    val ListBottomPadding = 20.dp
+    val BottomInset = 12.dp
+    val ActionIconSize = 20.dp
+    val SectionTopPadding = 8.dp
+    val SectionBottomPadding = 10.dp
+    val SectionIconSize = 14.dp
+    val SectionIconGap = 8.dp
+    val SectionCountGap = 12.dp
+    val RowCornerRadius = 12.dp
+    val RowHorizontalPadding = 32.dp
+    val RowVerticalPadding = 12.dp
+    val ActiveDotSize = 6.dp
+    val ActiveDotGap = 10.dp
+    val EmptyVerticalPadding = 28.dp
+}
 
 @Composable
 fun ConversationSidePaneScaffold(
@@ -68,10 +88,8 @@ fun ConversationSidePaneScaffold(
     onOpen: () -> Unit,
     onDismiss: () -> Unit,
     onSearchChange: (String) -> Unit,
-    onNewConversation: () -> Unit,
     onConversationSelected: (String) -> Unit,
     onOpenSettings: () -> Unit,
-    onOpenRuns: () -> Unit,
     onOpenTools: () -> Unit,
     onOpenPermissions: () -> Unit,
     modifier: Modifier = Modifier,
@@ -79,8 +97,8 @@ fun ConversationSidePaneScaffold(
 ) {
     BoxWithConstraints(modifier = modifier.fillMaxSize()) {
         val density = LocalDensity.current
-        val paneWidth = minOf(maxWidth * 0.84f, 340.dp)
-        val edgeSwipeWidthPx = with(density) { 36.dp.toPx() }
+        val paneWidth = minOf(maxWidth * DrawerMetrics.PaneWidthFraction, DrawerMetrics.PaneMaxWidth)
+        val edgeSwipeWidthPx = with(density) { DrawerMetrics.EdgeSwipeWidth.toPx() }
         val paneWidthPx = with(density) { paneWidth.toPx() }
         var dragging by remember { mutableStateOf(false) }
         var dragOffsetPx by remember { mutableFloatStateOf(0f) }
@@ -107,12 +125,9 @@ fun ConversationSidePaneScaffold(
         ConversationPanePanel(
             state = state,
             width = paneWidth,
-            onDismiss = onDismiss,
             onSearchChange = onSearchChange,
-            onNewConversation = onNewConversation,
             onConversationSelected = onConversationSelected,
             onOpenSettings = onOpenSettings,
-            onOpenRuns = onOpenRuns,
             onOpenTools = onOpenTools,
             onOpenPermissions = onOpenPermissions,
             modifier = Modifier.zIndex(0f),
@@ -161,7 +176,11 @@ fun ConversationSidePaneScaffold(
                 Box(
                     modifier = Modifier
                         .fillMaxSize()
-                        .background(Color.Black.copy(alpha = 0.30f * progress))
+                        .background(
+                            MiuixTheme.colorScheme.windowDimming.copy(
+                                alpha = MiuixTheme.colorScheme.windowDimming.alpha * progress,
+                            ),
+                        )
                         .clickable(onClick = onDismiss),
                 )
             }
@@ -173,131 +192,147 @@ fun ConversationSidePaneScaffold(
 private fun ConversationPanePanel(
     state: ConversationPaneUiState,
     width: androidx.compose.ui.unit.Dp,
-    onDismiss: () -> Unit,
     onSearchChange: (String) -> Unit,
-    onNewConversation: () -> Unit,
     onConversationSelected: (String) -> Unit,
     onOpenSettings: () -> Unit,
-    onOpenRuns: () -> Unit,
     onOpenTools: () -> Unit,
     onOpenPermissions: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
-    val visibleConversations = state.conversations.filter { conversation ->
-        val query = state.searchQuery.trim()
-        query.isBlank() ||
-            conversation.title.contains(query, ignoreCase = true) ||
-            conversation.preview.contains(query, ignoreCase = true)
+    val query = state.searchQuery.trim()
+    val visibleConversations = remember(state.conversations, query) {
+        if (query.isBlank()) {
+            state.conversations
+        } else {
+            state.conversations.filter { conversation ->
+                conversation.title.contains(query, ignoreCase = true) ||
+                    conversation.preview.contains(query, ignoreCase = true)
+            }
+        }
     }
-    val pinned = visibleConversations.filter { it.isPinned }
-    val recent = visibleConversations.filterNot { it.isPinned }
+    val groups = remember(visibleConversations) { visibleConversations.groupForDrawer() }
 
-    Column(
+    Surface(
         modifier = modifier
             .width(width)
-            .fillMaxHeight()
-            .background(MiuixTheme.colorScheme.background)
-            .safeDrawingPadding()
-            .padding(horizontal = 18.dp),
+            .fillMaxHeight(),
+        color = MiuixTheme.colorScheme.surface,
+        contentColor = MiuixTheme.colorScheme.onSurface,
     ) {
-        PaneHeader(
-            onNewConversation = onNewConversation,
-        )
+        Column(
+            modifier = Modifier
+                .fillMaxHeight()
+                .safeDrawingPadding()
+                .padding(horizontal = DrawerMetrics.PaneHorizontalPadding),
+        ) {
+            Spacer(modifier = Modifier.height(DrawerMetrics.TopInset))
+            PaneActionBar(
+                query = state.searchQuery,
+                onSearchChange = onSearchChange,
+            )
+            Spacer(modifier = Modifier.height(DrawerMetrics.AfterActionBar))
+            LazyColumn(
+                modifier = Modifier.weight(1f),
+                contentPadding = PaddingValues(bottom = DrawerMetrics.ListBottomPadding),
+            ) {
+                if (visibleConversations.isEmpty()) {
+                    item {
+                        EmptyConversations(isSearching = query.isNotBlank())
+                    }
+                } else {
+                    groups.forEach { group ->
+                        item(key = "section-${group.label}") {
+                            ConversationSectionHeader(group = group)
+                        }
+                        items(
+                            items = group.items,
+                            key = { it.id },
+                        ) { conversation ->
+                            ConversationTextRow(
+                                conversation = conversation,
+                                selected = conversation.id == state.selectedConversationId,
+                                onClick = { onConversationSelected(conversation.id) },
+                            )
+                        }
+                    }
+                }
+            }
+            PaneDock(
+                onOpenSettings = onOpenSettings,
+                onOpenTools = onOpenTools,
+                onOpenPermissions = onOpenPermissions,
+            )
+            Spacer(modifier = Modifier.height(DrawerMetrics.BottomInset))
+        }
+    }
+}
+
+@Composable
+private fun PaneActionBar(
+    query: String,
+    onSearchChange: (String) -> Unit,
+) {
+    Row(
+        modifier = Modifier.fillMaxWidth(),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
         SearchBar(
+            modifier = Modifier.weight(1f),
+            expanded = false,
+            onExpandedChange = {},
             inputField = {
                 InputField(
-                    query = state.searchQuery,
+                    query = query,
                     onQueryChange = onSearchChange,
                     onSearch = onSearchChange,
                     expanded = false,
                     onExpandedChange = {},
-                    label = "搜索对话",
+                    label = "搜索全部对话",
                 )
             },
-            expanded = false,
-            onExpandedChange = {},
             content = {},
-        )
-        Spacer(modifier = Modifier.height(14.dp))
-        LazyColumn(
-            modifier = Modifier.weight(1f),
-            contentPadding = PaddingValues(bottom = 16.dp),
-        ) {
-            if (visibleConversations.isEmpty()) {
-                item {
-                    EmptyConversations(isSearching = state.searchQuery.isNotBlank())
-                }
-            } else {
-                if (pinned.isNotEmpty()) {
-                    item { PaneSectionLabel(text = "置顶") }
-                    items(pinned, key = { it.id }) { conversation ->
-                        ConversationTitleRow(
-                            conversation = conversation,
-                            selected = conversation.id == state.selectedConversationId,
-                            onClick = { onConversationSelected(conversation.id) },
-                        )
-                    }
-                }
-                if (recent.isNotEmpty()) {
-                    item { PaneSectionLabel(text = if (pinned.isEmpty()) "最近" else "今天与更早") }
-                    items(recent, key = { it.id }) { conversation ->
-                        ConversationTitleRow(
-                            conversation = conversation,
-                            selected = conversation.id == state.selectedConversationId,
-                            onClick = { onConversationSelected(conversation.id) },
-                        )
-                    }
-                }
-            }
-        }
-        PaneFooter(
-            onOpenSettings = onOpenSettings,
-            onOpenRuns = onOpenRuns,
-            onOpenTools = onOpenTools,
-            onOpenPermissions = onOpenPermissions,
         )
     }
 }
 
 @Composable
-private fun PaneHeader(
-    onNewConversation: () -> Unit,
+private fun ConversationSectionHeader(
+    group: ConversationDrawerGroup,
 ) {
     Row(
         modifier = Modifier
             .fillMaxWidth()
-            .padding(top = 10.dp, bottom = 12.dp),
+            .padding(
+                top = DrawerMetrics.SectionTopPadding,
+                bottom = DrawerMetrics.SectionBottomPadding,
+            ),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        Text(
-            text = "FuckAndes",
-            style = MiuixTheme.textStyles.title2,
-            color = MiuixTheme.colorScheme.onBackground,
-            modifier = Modifier.weight(1f),
-            maxLines = 1,
-            overflow = TextOverflow.Ellipsis,
+        Icon(
+            painter = painterResource(LucideR.drawable.lucide_ic_clock),
+            contentDescription = null,
+            modifier = Modifier.size(DrawerMetrics.SectionIconSize),
+            tint = MiuixTheme.colorScheme.onSurfaceVariantActions,
         )
-        IconButton(onClick = onNewConversation) {
-            Icon(
-                imageVector = MiuixIcons.AddCircle,
-                contentDescription = "新对话",
-            )
-        }
+        Spacer(modifier = Modifier.width(DrawerMetrics.SectionIconGap))
+        Text(
+            text = group.label,
+            color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
+            style = MiuixTheme.textStyles.footnote1,
+            fontWeight = FontWeight.SemiBold,
+        )
+        Spacer(modifier = Modifier.width(DrawerMetrics.SectionCountGap))
+        Text(
+            text = group.items.size.toString(),
+            color = MiuixTheme.colorScheme.onSurfaceVariantActions,
+            style = MiuixTheme.textStyles.footnote1,
+            fontWeight = FontWeight.Medium,
+        )
     }
 }
 
 @Composable
-private fun PaneSectionLabel(text: String) {
-    Text(
-        text = text,
-        style = MiuixTheme.textStyles.subtitle,
-        color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
-        modifier = Modifier.padding(top = 18.dp, bottom = 6.dp),
-    )
-}
-
-@Composable
-private fun ConversationTitleRow(
+private fun ConversationTextRow(
     conversation: ConversationSummaryUi,
     selected: Boolean,
     onClick: () -> Unit,
@@ -305,7 +340,7 @@ private fun ConversationTitleRow(
     Row(
         modifier = Modifier
             .fillMaxWidth()
-            .clip(RoundedCornerShape(12.dp))
+            .clip(RoundedCornerShape(DrawerMetrics.RowCornerRadius))
             .background(
                 if (selected) {
                     MiuixTheme.colorScheme.surfaceContainerHigh
@@ -314,14 +349,21 @@ private fun ConversationTitleRow(
                 },
             )
             .clickable(onClick = onClick)
-            .padding(horizontal = 10.dp, vertical = 13.dp),
+            .padding(
+                horizontal = DrawerMetrics.RowHorizontalPadding,
+                vertical = DrawerMetrics.RowVerticalPadding,
+            ),
         verticalAlignment = Alignment.CenterVertically,
     ) {
         Text(
-            text = conversation.title,
-            style = MiuixTheme.textStyles.headline1,
-            fontWeight = FontWeight.Normal,
-            color = MiuixTheme.colorScheme.onBackground,
+            text = conversation.title.ifBlank { conversation.preview },
+            color = if (selected) {
+                MiuixTheme.colorScheme.primary
+            } else {
+                MiuixTheme.colorScheme.onSurface
+            },
+            style = MiuixTheme.textStyles.body1,
+            fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Medium,
             maxLines = 1,
             overflow = TextOverflow.Ellipsis,
             modifier = Modifier.weight(1f),
@@ -329,8 +371,8 @@ private fun ConversationTitleRow(
         if (conversation.isActiveRun) {
             Box(
                 modifier = Modifier
-                    .padding(start = 8.dp)
-                    .size(7.dp)
+                    .padding(start = DrawerMetrics.ActiveDotGap)
+                    .size(DrawerMetrics.ActiveDotSize)
                     .clip(CircleShape)
                     .background(MiuixTheme.colorScheme.primary),
             )
@@ -342,43 +384,39 @@ private fun ConversationTitleRow(
 private fun EmptyConversations(isSearching: Boolean) {
     Text(
         text = if (isSearching) "没有匹配的对话" else "还没有对话",
-        style = MiuixTheme.textStyles.headline1,
         color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
-        modifier = Modifier.padding(vertical = 24.dp),
+        style = MiuixTheme.textStyles.body2,
+        fontWeight = FontWeight.Medium,
+        modifier = Modifier.padding(
+            horizontal = DrawerMetrics.RowHorizontalPadding,
+            vertical = DrawerMetrics.EmptyVerticalPadding,
+        ),
     )
 }
 
 @Composable
-private fun PaneFooter(
+private fun PaneDock(
     onOpenSettings: () -> Unit,
-    onOpenRuns: () -> Unit,
     onOpenTools: () -> Unit,
     onOpenPermissions: () -> Unit,
 ) {
     Row(
-        modifier = Modifier
-            .fillMaxWidth()
-            .padding(top = 8.dp, bottom = 12.dp),
-        horizontalArrangement = Arrangement.SpaceBetween,
+        modifier = Modifier.fillMaxWidth(),
+        horizontalArrangement = Arrangement.SpaceEvenly,
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        FooterButton(
-            icon = { MiuixIcons.Settings },
+        DockButton(
+            icon = LucideR.drawable.lucide_ic_settings,
             label = "设置",
             onClick = onOpenSettings,
         )
-        FooterButton(
-            icon = { MiuixIcons.Folder },
+        DockButton(
+            icon = LucideR.drawable.lucide_ic_package,
             label = "工具",
             onClick = onOpenTools,
         )
-        FooterButton(
-            icon = { MiuixIcons.Recent },
-            label = "运行",
-            onClick = onOpenRuns,
-        )
-        FooterButton(
-            icon = { MiuixIcons.Lock },
+        DockButton(
+            icon = LucideR.drawable.lucide_ic_lock,
             label = "权限",
             onClick = onOpenPermissions,
         )
@@ -386,39 +424,46 @@ private fun PaneFooter(
 }
 
 @Composable
-private fun FooterButton(
-    icon: @Composable () -> androidx.compose.ui.graphics.vector.ImageVector,
+private fun DockButton(
+    icon: Int,
     label: String,
     onClick: () -> Unit,
 ) {
-    Column(
-        modifier = Modifier
-            .width(54.dp)
-            .clip(RoundedCornerShape(14.dp))
-            .clickable(onClick = onClick)
-            .padding(vertical = 6.dp),
-        horizontalAlignment = Alignment.CenterHorizontally,
+    IconButton(
+        onClick = onClick,
+        backgroundColor = MiuixTheme.colorScheme.surfaceContainer,
     ) {
-        Box(
-            modifier = Modifier
-                .size(38.dp)
-                .clip(CircleShape)
-                .background(MiuixTheme.colorScheme.surfaceContainerHigh),
-            contentAlignment = Alignment.Center,
-        ) {
-            Icon(
-                imageVector = icon(),
-                contentDescription = label,
-                modifier = Modifier.size(20.dp),
-            )
-        }
-        Text(
-            text = label,
-            style = MiuixTheme.textStyles.body2,
-            color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
-            maxLines = 1,
-            overflow = TextOverflow.Ellipsis,
-            modifier = Modifier.padding(top = 4.dp),
+        Icon(
+            painter = painterResource(icon),
+            contentDescription = label,
+            modifier = Modifier.size(DrawerMetrics.ActionIconSize),
+            tint = MiuixTheme.colorScheme.onSurface,
         )
     }
+}
+
+private data class ConversationDrawerGroup(
+    val label: String,
+    val items: List<ConversationSummaryUi>,
+)
+
+private fun List<ConversationSummaryUi>.groupForDrawer(): List<ConversationDrawerGroup> {
+    if (isEmpty()) return emptyList()
+    val groups = mutableListOf<ConversationDrawerGroup>()
+    for (conversation in this) {
+        val label = conversation.drawerSectionLabel()
+        val last = groups.lastOrNull()
+        if (last?.label == label) {
+            groups[groups.lastIndex] = last.copy(items = last.items + conversation)
+        } else {
+            groups += ConversationDrawerGroup(label = label, items = listOf(conversation))
+        }
+    }
+    return groups
+}
+
+private fun ConversationSummaryUi.drawerSectionLabel(): String = when {
+    isPinned -> "置顶"
+    timeLabel == "现在" || timeLabel == "最近" || ":" in timeLabel -> "今天"
+    else -> timeLabel
 }
