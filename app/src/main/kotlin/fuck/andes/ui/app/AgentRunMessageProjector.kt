@@ -106,7 +106,7 @@ internal class AgentRunMessageProjector(
         messages.insertBeforeAssistantOnce(
             runId = runId,
             message = ToolActivityMessageUi(
-                id = toolActivityMessageId(runId, event.toolCallId),
+                id = toolActivityMessageId(runId, event.round, event.toolCallId),
                 toolName = event.name,
                 status = ToolActivityStatusUi.Running,
                 argumentsSummary = event.argsPreview,
@@ -118,7 +118,7 @@ internal class AgentRunMessageProjector(
         event: AgentEvent.ToolFinished,
         messages: List<AgentChatMessageUi>,
     ): List<AgentChatMessageUi> {
-        val targetId = toolActivityMessageId(runId, event.toolCallId)
+        val targetId = toolActivityMessageId(runId, event.round, event.toolCallId)
         val status = if (event.resultSummary.contains("ok=false", ignoreCase = true)) {
             ToolActivityStatusUi.Failed
         } else {
@@ -196,8 +196,8 @@ internal class AgentRunMessageProjector(
     private fun thinkingMessageId(runId: String, round: Int): String =
         "$runId-thinking-$round"
 
-    private fun toolActivityMessageId(runId: String, toolCallId: String): String =
-        "$runId-tool-${toolCallId.ifBlank { "unknown" }}"
+    private fun toolActivityMessageId(runId: String, round: Int, toolCallId: String): String =
+        "$runId-tool-$round-${toolCallId.ifBlank { "unknown" }}"
 }
 
 private const val MAX_TOOL_RESULT_PREVIEW_CHARS = 48

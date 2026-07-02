@@ -64,9 +64,9 @@ class AgentRunMessageProjectorTest {
             listOf(
                 "user-$runId",
                 "$runId-thinking-1",
-                "$runId-tool-call_observe_1",
+                "$runId-tool-1-call_observe_1",
                 "$runId-thinking-2",
-                "$runId-tool-call_observe_2",
+                "$runId-tool-2-call_observe_2",
                 "assistant-$runId",
             ),
             messages.map { it.id }
@@ -83,5 +83,55 @@ class AgentRunMessageProjectorTest {
         val secondTool = messages[4] as ToolActivityMessageUi
         assertEquals(ToolActivityStatusUi.Running, secondTool.status)
         assertEquals("""{"include_ui_tree":true}""", secondTool.argumentsSummary)
+    }
+
+    @Test
+    fun keepsFallbackToolCallIdsDistinctAcrossRounds() {
+        val projector = AgentRunMessageProjector(nowElapsedRealtime = { 1_000L })
+        val runId = "run-fallback"
+        var messages: List<AgentChatMessageUi> = listOf(
+            UserMessageUi(id = "user-$runId", content = "操作手机"),
+            AgentMessageUi(id = "assistant-$runId", content = "", isStreaming = true),
+        )
+
+        messages = projector.startTool(
+            runId,
+            AgentEvent.ToolStarted(
+                round = 1,
+                toolCallId = "tool_call_0",
+                name = "search_apps",
+                argsPreview = """{"query":"相机"}""",
+            ),
+            messages
+        )
+        messages = projector.finishTool(
+            runId,
+            AgentEvent.ToolFinished(
+                round = 1,
+                toolCallId = "tool_call_0",
+                name = "search_apps",
+                resultSummary = "ok=true",
+                imageCount = 0,
+                imageBytes = 0,
+            ),
+            messages
+        )
+        messages = projector.startTool(
+            runId,
+            AgentEvent.ToolStarted(
+                round = 2,
+                toolCallId = "tool_call_0",
+                name = "observe_screen",
+                argsPreview = """{"include_screenshot":true}""",
+            ),
+            messages
+        )
+
+        val tools = messages.filterIsInstance<ToolActivityMessageUi>()
+        assertEquals(2, tools.size)
+        assertEquals("search_apps", tools[0].toolName)
+        assertEquals(ToolActivityStatusUi.Success, tools[0].status)
+        assertEquals("observe_screen", tools[1].toolName)
+        assertEquals(ToolActivityStatusUi.Running, tools[1].status)
     }
 }
