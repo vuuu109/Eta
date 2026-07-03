@@ -65,6 +65,7 @@ import top.yukonga.miuix.kmp.theme.MiuixTheme
 
 private val ATTACH_MENU_ITEMS = listOf("添加图片")
 private val InputIconSize = 24.dp
+private val InputCardHorizontalPadding = 4.dp
 
 @Composable
 fun AgentChatInputBar(
@@ -117,7 +118,7 @@ fun AgentChatInputBar(
         modifier = modifier
             .fillMaxWidth()
             .background(MiuixTheme.colorScheme.surface)
-            .padding(horizontal = 16.dp, vertical = 8.dp),
+            .padding(start = 16.dp, top = 2.dp, end = 16.dp, bottom = 8.dp),
     ) {
         // Pending attached images row (sits beautifully above the input card)
         if (pendingImages.isNotEmpty()) {
@@ -183,7 +184,7 @@ fun AgentChatInputBar(
                     color = MiuixTheme.colorScheme.onSurfaceVariantSummary.copy(alpha = 0.08f),
                     shape = RoundedCornerShape(16.dp)
                 )
-                .padding(horizontal = 8.dp, vertical = 6.dp)
+                .padding(horizontal = InputCardHorizontalPadding, vertical = 6.dp)
         ) {
             // Row 1 (Top / Collapsed Row): Dynamic width allocation
             Row(

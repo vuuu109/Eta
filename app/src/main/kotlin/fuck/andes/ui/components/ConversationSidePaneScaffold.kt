@@ -18,6 +18,7 @@ import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.safeDrawingPadding
@@ -73,12 +74,15 @@ private object DrawerMetrics {
     val SectionIconSize = 14.dp
     val SectionIconGap = 8.dp
     val SectionCountGap = 12.dp
+    val RowMinHeight = 48.dp
+    val RowGap = 4.dp
     val RowCornerRadius = 12.dp
     val RowHorizontalPadding = 32.dp
     val RowVerticalPadding = 12.dp
     val ActiveDotSize = 6.dp
     val ActiveDotGap = 10.dp
     val EmptyVerticalPadding = 28.dp
+    val DockTopGap = 14.dp
 }
 
 @Composable
@@ -237,6 +241,7 @@ private fun ConversationPanePanel(
             LazyColumn(
                 modifier = Modifier.weight(1f),
                 contentPadding = PaddingValues(bottom = DrawerMetrics.ListBottomPadding),
+                verticalArrangement = Arrangement.spacedBy(DrawerMetrics.RowGap),
             ) {
                 if (visibleConversations.isEmpty()) {
                     item {
@@ -260,6 +265,7 @@ private fun ConversationPanePanel(
                     }
                 }
             }
+            Spacer(modifier = Modifier.height(DrawerMetrics.DockTopGap))
             PaneDock(
                 onOpenSettings = onOpenSettings,
                 onOpenTools = onOpenTools,
@@ -344,6 +350,7 @@ private fun ConversationTextRow(
     Row(
         modifier = Modifier
             .fillMaxWidth()
+            .heightIn(min = DrawerMetrics.RowMinHeight)
             .clip(RoundedCornerShape(DrawerMetrics.RowCornerRadius))
             .background(
                 if (selected) {

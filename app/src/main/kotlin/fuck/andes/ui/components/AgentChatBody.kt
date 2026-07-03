@@ -1,29 +1,44 @@
 package fuck.andes.ui.components
 
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.core.Spring
+import androidx.compose.animation.core.spring
+import androidx.compose.animation.core.tween
+import androidx.compose.animation.expandVertically
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.shrinkVertically
+import androidx.compose.animation.slideInVertically
+import androidx.compose.animation.slideOutVertically
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.ime
 import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -31,20 +46,35 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.res.painterResource
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
+import androidx.compose.material3.Scaffold
 import com.composables.icons.lucide.R as LucideR
 import fuck.andes.ui.model.AgentChatMessageUi
+import fuck.andes.ui.model.AgentMessageUi
 import fuck.andes.ui.model.PendingImageUi
+import fuck.andes.ui.model.RunTraceMessageUi
+import fuck.andes.ui.model.SuggestionChipsMessageUi
+import fuck.andes.ui.model.ThinkingMessageUi
+import fuck.andes.ui.model.ToolActivityMessageUi
+import fuck.andes.ui.model.ToolSummaryMessageUi
+import fuck.andes.ui.model.UserMessageUi
 import top.yukonga.miuix.kmp.basic.Icon
 import top.yukonga.miuix.kmp.basic.Text
 import top.yukonga.miuix.kmp.theme.MiuixTheme
 
 /**
  * 聊天主体：消息流 + 底部输入框。
+ *
+ * AI 对话使用正向时间线：第一条消息从对话区顶部开始，后续回复顺序向下追加。
+ * 空 assistant 占位不参与布局，避免刚发送时出现一个无内容消息节点。
  */
 @Composable
+@OptIn(ExperimentalLayoutApi::class)
 fun AgentChatBody(
     messages: List<AgentChatMessageUi>,
     input: String,
@@ -64,16 +94,18 @@ fun AgentChatBody(
 ) {
     val scrollState = rememberLazyListState()
     val keyboard = LocalSoftwareKeyboardController.current
+    val density = LocalDensity.current
+    val imeBottomPx = WindowInsets.ime.getBottom(density)
+    val isKeyboardVisible = imeBottomPx > 0
 
-    val displayMessages = messages.asReversed()
-
-    LaunchedEffect(messages.size) {
-        if (messages.isNotEmpty()) {
-            scrollState.scrollToItem(0)
+    val visibleMessages = remember(messages) {
+        messages.filterNot { message ->
+            message is AgentMessageUi && message.content.isBlank()
         }
     }
-
     var sentFromKeyboard by remember { mutableStateOf(false) }
+    var keepBottomAnchored by remember { mutableStateOf(true) }
+
     LaunchedEffect(isStreaming) {
         if (isStreaming && sentFromKeyboard) {
             keyboard?.hide()
@@ -87,57 +119,231 @@ fun AgentChatBody(
         }
     }
 
-    Column(modifier = modifier.fillMaxSize()) {
-        if (messages.isEmpty()) {
+    AgentChatScaffold(
+        visibleMessages = visibleMessages,
+        hasMessages = visibleMessages.isNotEmpty(),
+        scrollState = scrollState,
+        input = input,
+        isStreaming = isStreaming,
+        thinkingEnabled = thinkingEnabled,
+        pendingImages = pendingImages,
+        showEmptySuggestions = !isKeyboardVisible,
+        keepBottomAnchored = keepBottomAnchored,
+        isKeyboardVisible = isKeyboardVisible,
+        onBottomAnchorChanged = { keepBottomAnchored = it },
+        onInputChange = onInputChange,
+        onThinkingChange = onThinkingChange,
+        onSend = {
+            sentFromKeyboard = true
+            onSend()
+        },
+        onStop = onStop,
+        onAttachImage = onAttachImage,
+        onRemoveImage = onRemoveImage,
+        onSuggestionClick = onSuggestionClick,
+        onRunTraceClick = onRunTraceClick,
+        modifier = modifier,
+    )
+}
+
+@Composable
+@OptIn(ExperimentalLayoutApi::class)
+private fun AgentChatScaffold(
+    visibleMessages: List<AgentChatMessageUi>,
+    hasMessages: Boolean,
+    scrollState: LazyListState,
+    input: String,
+    isStreaming: Boolean,
+    thinkingEnabled: Boolean,
+    pendingImages: List<PendingImageUi>,
+    showEmptySuggestions: Boolean,
+    keepBottomAnchored: Boolean,
+    isKeyboardVisible: Boolean,
+    onBottomAnchorChanged: (Boolean) -> Unit,
+    onInputChange: (String) -> Unit,
+    onThinkingChange: (Boolean) -> Unit,
+    onSend: () -> Unit,
+    onStop: () -> Unit,
+    onAttachImage: (String) -> Unit,
+    onRemoveImage: (String) -> Unit,
+    onSuggestionClick: (String) -> Unit,
+    onRunTraceClick: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    Scaffold(
+        modifier = modifier.fillMaxSize(),
+        containerColor = Color.Transparent,
+        contentWindowInsets = WindowInsets(
+            left = 0.dp,
+            top = 0.dp,
+            right = 0.dp,
+            bottom = 0.dp,
+        ),
+        bottomBar = {
+            AgentChatBottomBar(
+                input = input,
+                isStreaming = isStreaming,
+                thinkingEnabled = thinkingEnabled,
+                pendingImages = pendingImages,
+                onInputChange = onInputChange,
+                onThinkingChange = onThinkingChange,
+                onSend = onSend,
+                onStop = onStop,
+                onAttachImage = onAttachImage,
+                onRemoveImage = onRemoveImage,
+            )
+        },
+    ) { innerPadding ->
+        val bottomPadding = innerPadding.calculateBottomPadding()
+        if (!hasMessages) {
             EmptyChatState(
+                showSuggestions = showEmptySuggestions,
                 onSuggestionClick = onSuggestionClick,
-                modifier = Modifier.weight(1f),
+                modifier = Modifier
+                    .fillMaxSize()
+                    .padding(bottom = bottomPadding),
             )
         } else {
-            LazyColumn(
-                state = scrollState,
-                reverseLayout = true,
-                modifier = Modifier
-                    .weight(1f)
-                    .fillMaxWidth(),
-                contentPadding = PaddingValues(top = 12.dp, bottom = 12.dp),
-            ) {
-                items(
-                    items = displayMessages,
-                    key = { it.id },
-                ) { message ->
-                    ChatMessageItem(
-                        message = message,
-                        onSuggestionClick = onSuggestionClick,
-                        onRunTraceClick = onRunTraceClick,
-                    )
-                }
-            }
+            AgentChatMessages(
+                visibleMessages = visibleMessages,
+                scrollState = scrollState,
+                bottomPadding = bottomPadding,
+                keepBottomAnchored = keepBottomAnchored,
+                isKeyboardVisible = isKeyboardVisible,
+                onBottomAnchorChanged = onBottomAnchorChanged,
+                onSuggestionClick = onSuggestionClick,
+                onRunTraceClick = onRunTraceClick,
+            )
         }
-        AgentChatInputBar(
-            input = input,
-            isStreaming = isStreaming,
-            thinkingEnabled = thinkingEnabled,
-            pendingImages = pendingImages,
-            onInputChange = onInputChange,
-            onThinkingChange = onThinkingChange,
-            onSend = {
-                sentFromKeyboard = true
-                onSend()
-            },
-            onStop = onStop,
-            onAttachImage = onAttachImage,
-            onRemoveImage = onRemoveImage,
-            modifier = Modifier
-                .fillMaxWidth()
-                .navigationBarsPadding()
-                .imePadding(),
-        )
     }
 }
 
 @Composable
+@OptIn(ExperimentalLayoutApi::class)
+private fun AgentChatMessages(
+    visibleMessages: List<AgentChatMessageUi>,
+    scrollState: LazyListState,
+    bottomPadding: Dp,
+    keepBottomAnchored: Boolean,
+    isKeyboardVisible: Boolean,
+    onBottomAnchorChanged: (Boolean) -> Unit,
+    onSuggestionClick: (String) -> Unit,
+    onRunTraceClick: () -> Unit,
+) {
+    val density = LocalDensity.current
+    val bottomPaddingPx = with(density) { bottomPadding.roundToPx() }
+    val bottomItemIndex = visibleMessages.size
+    val bottomAnchorKey = visibleMessages.lastOrNull()?.bottomAnchorKey()
+    val isAtBottom by remember(scrollState, bottomPaddingPx) {
+        derivedStateOf { scrollState.isScrolledToBottom(bottomPaddingPx) }
+    }
+
+    LaunchedEffect(
+        isKeyboardVisible,
+        isAtBottom,
+        scrollState.isScrollInProgress,
+    ) {
+        if (!isKeyboardVisible || scrollState.isScrollInProgress || isAtBottom) {
+            onBottomAnchorChanged(isAtBottom)
+        }
+    }
+
+    LaunchedEffect(
+        bottomPadding,
+        visibleMessages.size,
+        bottomAnchorKey,
+        keepBottomAnchored,
+    ) {
+        if (keepBottomAnchored) {
+            scrollState.requestScrollToItem(bottomItemIndex)
+        }
+    }
+
+    LazyColumn(
+        state = scrollState,
+        verticalArrangement = Arrangement.Top,
+        modifier = Modifier.fillMaxSize(),
+        contentPadding = PaddingValues(
+            top = 12.dp,
+            bottom = 12.dp + bottomPadding,
+        ),
+    ) {
+        items(
+            items = visibleMessages,
+            key = { it.id },
+        ) { message ->
+            ChatMessageItem(
+                message = message,
+                onSuggestionClick = onSuggestionClick,
+                onRunTraceClick = onRunTraceClick,
+            )
+        }
+        item(key = ChatBottomSentinelKey) {
+            Spacer(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(1.dp),
+            )
+        }
+    }
+}
+
+@Composable
+private fun AgentChatBottomBar(
+    input: String,
+    isStreaming: Boolean,
+    thinkingEnabled: Boolean,
+    pendingImages: List<PendingImageUi>,
+    onInputChange: (String) -> Unit,
+    onThinkingChange: (Boolean) -> Unit,
+    onSend: () -> Unit,
+    onStop: () -> Unit,
+    onAttachImage: (String) -> Unit,
+    onRemoveImage: (String) -> Unit,
+) {
+    AgentChatInputBar(
+        input = input,
+        isStreaming = isStreaming,
+        thinkingEnabled = thinkingEnabled,
+        pendingImages = pendingImages,
+        onInputChange = onInputChange,
+        onThinkingChange = onThinkingChange,
+        onSend = onSend,
+        onStop = onStop,
+        onAttachImage = onAttachImage,
+        onRemoveImage = onRemoveImage,
+        modifier = Modifier
+            .fillMaxWidth()
+            .imePadding()
+            .navigationBarsPadding(),
+    )
+}
+
+private const val ChatBottomSentinelKey = "agent-chat-bottom-sentinel"
+
+private fun LazyListState.isScrolledToBottom(bottomPaddingPx: Int): Boolean {
+    val layoutInfo = layoutInfo
+    if (layoutInfo.totalItemsCount == 0) return true
+    val lastVisibleItem = layoutInfo.visibleItemsInfo.lastOrNull() ?: return false
+    val lastItemIndex = layoutInfo.totalItemsCount - 1
+    val visibleBottom = layoutInfo.viewportEndOffset - bottomPaddingPx
+    return lastVisibleItem.index >= lastItemIndex &&
+        lastVisibleItem.offset + lastVisibleItem.size <= visibleBottom + 2
+}
+
+private fun AgentChatMessageUi.bottomAnchorKey(): String = when (this) {
+    is UserMessageUi -> "$id:${content.hashCode()}:${images.size}"
+    is AgentMessageUi -> "$id:${content.hashCode()}:$isStreaming:${usage.hashCode()}"
+    is ThinkingMessageUi -> "$id:${content.hashCode()}:$isStreaming:$elapsedSeconds:$collapsed"
+    is RunTraceMessageUi -> "$id:${capabilities.size}"
+    is ToolSummaryMessageUi -> "$id:${tools.hashCode()}"
+    is ToolActivityMessageUi -> "$id:$toolName:$status:${argumentsSummary.hashCode()}:${resultSummary.hashCode()}:$imageCount"
+    is SuggestionChipsMessageUi -> "$id:${prompts.hashCode()}"
+}
+
+@Composable
 private fun EmptyChatState(
+    showSuggestions: Boolean,
     onSuggestionClick: (String) -> Unit,
     modifier: Modifier = Modifier,
 ) {
@@ -168,9 +374,9 @@ private fun EmptyChatState(
     Column(
         modifier = modifier
             .fillMaxSize()
-            .padding(horizontal = 24.dp, vertical = 32.dp),
+            .padding(start = 24.dp, top = 88.dp, end = 24.dp, bottom = 32.dp),
+        verticalArrangement = Arrangement.Top,
     ) {
-        // Kimi-style avatar
         Box(
             modifier = Modifier
                 .size(48.dp)
@@ -200,11 +406,40 @@ private fun EmptyChatState(
         Column(
             verticalArrangement = Arrangement.spacedBy(10.dp),
         ) {
-            suggestions.forEach { item ->
-                SuggestionCard(
-                    item = item,
-                    onClick = { onSuggestionClick(item.prompt) },
-                )
+            suggestions.forEachIndexed { index, item ->
+                AnimatedVisibility(
+                    visible = showSuggestions,
+                    enter = fadeIn(
+                        animationSpec = tween(
+                            durationMillis = 220,
+                            delayMillis = index * 45,
+                        )
+                    ) + slideInVertically(
+                        animationSpec = spring(
+                            dampingRatio = Spring.DampingRatioNoBouncy,
+                            stiffness = Spring.StiffnessMediumLow,
+                        ),
+                        initialOffsetY = { it / 3 },
+                    ) + expandVertically(
+                        animationSpec = spring(
+                            dampingRatio = Spring.DampingRatioNoBouncy,
+                            stiffness = Spring.StiffnessMediumLow,
+                        )
+                    ),
+                    exit = fadeOut(
+                        animationSpec = tween(durationMillis = 130)
+                    ) + slideOutVertically(
+                        animationSpec = tween(durationMillis = 180),
+                        targetOffsetY = { -it / 4 },
+                    ) + shrinkVertically(
+                        animationSpec = tween(durationMillis = 180)
+                    ),
+                ) {
+                    SuggestionCard(
+                        item = item,
+                        onClick = { onSuggestionClick(item.prompt) },
+                    )
+                }
             }
         }
     }
@@ -265,4 +500,3 @@ private data class SuggestionItem(
     val prompt: String,
     val highlighted: Boolean = false,
 )
-

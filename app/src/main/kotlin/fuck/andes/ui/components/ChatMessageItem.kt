@@ -33,6 +33,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
@@ -44,11 +45,17 @@ import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.res.painterResource
+import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontFamily
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import com.composables.icons.lucide.R as LucideR
 import com.mikepenz.markdown.m3.Markdown
+import com.mikepenz.markdown.m3.markdownTypography
+import com.mikepenz.markdown.model.rememberMarkdownState
+import com.mikepenz.markdown.model.rememberStreamingMarkdownState
 import fuck.andes.ui.model.AgentChatMessageUi
 import fuck.andes.ui.model.AgentMessageUi
 import fuck.andes.ui.model.RunTraceMessageUi
@@ -219,7 +226,7 @@ private fun UserMessageBubble(
     Row(
         modifier = modifier
             .fillMaxWidth()
-            .padding(horizontal = 16.dp, vertical = 6.dp),
+            .padding(horizontal = 24.dp, vertical = 6.dp),
         horizontalArrangement = Arrangement.End,
     ) {
         Column(
@@ -272,25 +279,30 @@ private fun AgentMessageBlock(
     Column(
         modifier = modifier
             .fillMaxWidth()
-            .padding(horizontal = 16.dp, vertical = 6.dp),
+            .padding(horizontal = 24.dp, vertical = 6.dp),
     ) {
         // AI response starts directly on the left with zero clunky headers, avatars or badges
-        StreamingText(
-            text = message.content,
-            animate = message.isStreaming
-        ) { displayedText ->
-            if (displayedText.isBlank() && message.isStreaming) {
+        when {
+            message.content.isBlank() && message.isStreaming -> {
                 AITypingIndicator(
                     modifier = Modifier.padding(top = 4.dp)
                 )
-            } else if (message.renderMarkdown && displayedText.isNotBlank()) {
-                Markdown(
-                    content = displayedText,
+            }
+            message.isStreaming -> {
+                StreamingMarkdown(
+                    content = message.content,
                     modifier = Modifier.fillMaxWidth(),
                 )
-            } else if (displayedText.isNotBlank()) {
+            }
+            message.renderMarkdown -> {
+                StableMarkdown(
+                    content = message.content,
+                    modifier = Modifier.fillMaxWidth(),
+                )
+            }
+            message.content.isNotBlank() -> {
                 Text(
-                    text = displayedText,
+                    text = message.content,
                     style = MiuixTheme.textStyles.body1,
                     color = MiuixTheme.colorScheme.onSurface,
                 )
@@ -298,6 +310,88 @@ private fun AgentMessageBlock(
         }
     }
 }
+
+@Composable
+private fun StableMarkdown(
+    content: String,
+    modifier: Modifier = Modifier,
+) {
+    val markdownState = rememberMarkdownState(
+        content = content,
+        retainState = true,
+    )
+    Markdown(
+        markdownState = markdownState,
+        typography = chatMarkdownTypography(),
+        modifier = modifier,
+        loading = {
+            Text(
+                text = content,
+                style = MiuixTheme.textStyles.body1,
+                color = MiuixTheme.colorScheme.onSurface,
+                modifier = it,
+            )
+        },
+        error = {
+            Text(
+                text = content,
+                style = MiuixTheme.textStyles.body1,
+                color = MiuixTheme.colorScheme.onSurface,
+                modifier = it,
+            )
+        },
+    )
+}
+
+@Composable
+private fun StreamingMarkdown(
+    content: String,
+    modifier: Modifier = Modifier,
+) {
+    var generation by remember { mutableStateOf(0) }
+    key(generation) {
+        val markdownState = rememberStreamingMarkdownState()
+        var appendedContent by remember { mutableStateOf("") }
+
+        LaunchedEffect(content) {
+            if (!content.startsWith(appendedContent)) {
+                generation += 1
+                return@LaunchedEffect
+            }
+
+            val chunk = content.substring(appendedContent.length)
+            if (chunk.isNotEmpty()) {
+                markdownState.append(chunk)
+                appendedContent = content
+            }
+        }
+
+        Markdown(
+            streamingMarkdownState = markdownState,
+            typography = chatMarkdownTypography(),
+            modifier = modifier,
+        )
+    }
+}
+
+@Composable
+private fun chatMarkdownTypography() = markdownTypography(
+    h1 = TextStyle(fontSize = 24.sp, fontWeight = FontWeight.Bold),
+    h2 = TextStyle(fontSize = 20.sp, fontWeight = FontWeight.Bold),
+    h3 = TextStyle(fontSize = 17.sp, fontWeight = FontWeight.Bold),
+    h4 = TextStyle(fontSize = 15.sp, fontWeight = FontWeight.Bold),
+    h5 = TextStyle(fontSize = 14.sp, fontWeight = FontWeight.Bold),
+    h6 = TextStyle(fontSize = 13.sp, fontWeight = FontWeight.Bold),
+    text = MiuixTheme.textStyles.body1,
+    paragraph = MiuixTheme.textStyles.body1,
+    ordered = MiuixTheme.textStyles.body1,
+    bullet = MiuixTheme.textStyles.body1,
+    list = MiuixTheme.textStyles.body1,
+    quote = MiuixTheme.textStyles.body2,
+    code = MiuixTheme.textStyles.footnote1.copy(fontFamily = FontFamily.Monospace),
+    inlineCode = MiuixTheme.textStyles.body1.copy(fontFamily = FontFamily.Monospace),
+    table = MiuixTheme.textStyles.footnote1,
+)
 
 // ── 思考：纯文字无边框极简设计，用 Lucide 完美配对的 Chevron ───
 
@@ -315,7 +409,7 @@ private fun ThinkingRow(
     Column(
         modifier = modifier
             .fillMaxWidth()
-            .padding(horizontal = 16.dp, vertical = 4.dp),
+            .padding(horizontal = 24.dp, vertical = 4.dp),
     ) {
         Row(
             modifier = Modifier
@@ -404,7 +498,7 @@ private fun ToolActivityInline(
         modifier = modifier
             .fillMaxWidth()
             .clickable { isExpanded = !isExpanded }
-            .padding(horizontal = 16.dp, vertical = 4.dp)
+            .padding(horizontal = 24.dp, vertical = 4.dp)
     ) {
         Row(
             verticalAlignment = Alignment.CenterVertically,
@@ -531,7 +625,7 @@ private fun RunTraceRow(
     Row(
         modifier = modifier
             .fillMaxWidth()
-            .padding(horizontal = 16.dp, vertical = 4.dp)
+            .padding(horizontal = 24.dp, vertical = 4.dp)
             .clip(RoundedCornerShape(12.dp))
             .background(MiuixTheme.colorScheme.surfaceContainer)
             .border(0.5.dp, MiuixTheme.colorScheme.primary.copy(alpha = 0.1f), RoundedCornerShape(12.dp))
@@ -572,7 +666,7 @@ private fun ToolSummaryInline(
     FlowRow(
         modifier = modifier
             .fillMaxWidth()
-            .padding(horizontal = 16.dp, vertical = 3.dp),
+            .padding(horizontal = 24.dp, vertical = 3.dp),
         horizontalArrangement = Arrangement.spacedBy(6.dp),
         verticalArrangement = Arrangement.spacedBy(6.dp),
     ) {
@@ -614,7 +708,7 @@ private fun SuggestionChipsRow(
     FlowRow(
         modifier = modifier
             .fillMaxWidth()
-            .padding(horizontal = 16.dp, vertical = 6.dp),
+            .padding(horizontal = 24.dp, vertical = 6.dp),
         horizontalArrangement = Arrangement.spacedBy(8.dp, Alignment.CenterHorizontally),
         verticalArrangement = Arrangement.spacedBy(8.dp),
     ) {
