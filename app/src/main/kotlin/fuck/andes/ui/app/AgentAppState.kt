@@ -3,6 +3,7 @@ package fuck.andes.ui.app
 import android.content.ComponentName
 import android.content.Context
 import android.content.SharedPreferences
+import android.os.PowerManager
 import android.provider.Settings
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -817,46 +818,48 @@ private fun buildToolsState(): AgentToolsUiState =
     )
 
 private fun buildPermissionHealthState(context: Context): PermissionHealthUiState {
-    val accessibilityEnabled = isAgentAccessibilityEnabled(context) || AgentAccessibilityService.isAvailable()
+    val backgroundRunningEnabled = isIgnoringBatteryOptimizations(context)
     val overlayEnabled = Settings.canDrawOverlays(context)
-    val config = loadModelConfigForUi()
+    val appListEnabled = hasAppListAccess(context)
+    val accessibilityEnabled = isAgentAccessibilityEnabled(context) || AgentAccessibilityService.isAvailable()
+    val rootEnabled = isRootAvailable()
+
     return PermissionHealthUiState(
         items = listOf(
             PermissionHealthItemUi(
-                id = "accessibility",
-                title = "无障碍服务",
-                summary = if (accessibilityEnabled) "已启用，Agent 可读取和操作 UI 节点" else "未启用，节点点击和文本编辑能力受限",
-                status = if (accessibilityEnabled) PermissionStatusUi.Available else PermissionStatusUi.Missing,
-                primaryActionLabel = if (accessibilityEnabled) null else "去开启",
+                id = "background",
+                title = "后台运行权限",
+                summary = "",
+                status = if (backgroundRunningEnabled) PermissionStatusUi.Available else PermissionStatusUi.Missing,
+                primaryActionLabel = if (backgroundRunningEnabled) null else "去开启",
             ),
             PermissionHealthItemUi(
                 id = "overlay",
                 title = "悬浮窗权限",
-                summary = if (overlayEnabled) "已授权，可显示运行状态浮窗" else "未授权，Runtime 浮窗不可见",
+                summary = "",
                 status = if (overlayEnabled) PermissionStatusUi.Available else PermissionStatusUi.Missing,
                 primaryActionLabel = if (overlayEnabled) null else "去授权",
             ),
             PermissionHealthItemUi(
-                id = "model",
-                title = "模型配置",
-                summary = if (config.baseUrl.isNotBlank() && config.apiKey.isNotBlank() && config.model.isNotBlank()) {
-                    "已配置 ${config.model}"
-                } else {
-                    "缺少 API 地址、API Key 或模型名"
-                },
-                status = if (config.baseUrl.isNotBlank() && config.apiKey.isNotBlank() && config.model.isNotBlank()) {
-                    PermissionStatusUi.Available
-                } else {
-                    PermissionStatusUi.Missing
-                },
-                primaryActionLabel = "设置",
+                id = "app_list",
+                title = "应用列表读取",
+                summary = "",
+                status = if (appListEnabled) PermissionStatusUi.Available else PermissionStatusUi.Missing,
+                primaryActionLabel = if (appListEnabled) null else "去开启",
             ),
             PermissionHealthItemUi(
-                id = "terminal",
-                title = "终端/文件工具",
-                summary = if (config.terminalTools) "已启用，Agent 可按需使用 shell 与文件工具" else "未启用，终端和文件工具不会暴露给模型",
-                status = if (config.terminalTools) PermissionStatusUi.Available else PermissionStatusUi.Disabled,
-                primaryActionLabel = "设置",
+                id = "accessibility",
+                title = "无障碍辅助权限",
+                summary = "",
+                status = if (accessibilityEnabled) PermissionStatusUi.Available else PermissionStatusUi.Missing,
+                primaryActionLabel = if (accessibilityEnabled) null else "去开启",
+            ),
+            PermissionHealthItemUi(
+                id = "root",
+                title = "Root 权限",
+                summary = "",
+                status = if (rootEnabled) PermissionStatusUi.Available else PermissionStatusUi.Missing,
+                primaryActionLabel = if (rootEnabled) null else "去开启",
             ),
         )
     )
@@ -949,4 +952,29 @@ private fun isAgentAccessibilityEnabled(context: Context): Boolean {
         Settings.Secure.ENABLED_ACCESSIBILITY_SERVICES,
     ).orEmpty()
     return enabledServices.split(':').any { it.equals(expected, ignoreCase = true) }
+}
+
+private fun isIgnoringBatteryOptimizations(context: Context): Boolean {
+    val powerManager = context.getSystemService(Context.POWER_SERVICE) as? PowerManager
+    return powerManager?.isIgnoringBatteryOptimizations(context.packageName) ?: false
+}
+
+private fun isRootAvailable(): Boolean {
+    return try {
+        val process = Runtime.getRuntime().exec(arrayOf("su", "-c", "id"))
+        val exitCode = process.waitFor()
+        exitCode == 0
+    } catch (e: Exception) {
+        false
+    }
+}
+
+private fun hasAppListAccess(context: Context): Boolean {
+    return try {
+        val pm = context.packageManager
+        val packages = pm.getInstalledPackages(0)
+        packages.size > 10
+    } catch (e: Exception) {
+        false
+    }
 }

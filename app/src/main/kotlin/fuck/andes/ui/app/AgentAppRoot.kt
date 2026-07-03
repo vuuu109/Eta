@@ -1,6 +1,10 @@
 package fuck.andes.ui.app
 
 import android.app.Activity
+import android.content.Intent
+import android.net.Uri
+import android.provider.Settings
+import kotlinx.coroutines.launch
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
@@ -194,7 +198,51 @@ fun AgentAppRoot() {
                         onAction = { action ->
                             when (action) {
                                 PermissionHealthAction.NavigateBack -> popRoute()
-                                is PermissionHealthAction.OpenItemAction -> Unit
+                                is PermissionHealthAction.OpenItemAction -> {
+                                    when (action.itemId) {
+                                        "accessibility" -> {
+                                            runCatching {
+                                                context.startActivity(Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS))
+                                            }
+                                        }
+                                        "overlay" -> {
+                                            runCatching {
+                                                context.startActivity(
+                                                    Intent(
+                                                        Settings.ACTION_MANAGE_OVERLAY_PERMISSION,
+                                                        Uri.parse("package:${context.packageName}")
+                                                    )
+                                                )
+                                            }
+                                        }
+                                        "background" -> {
+                                            runCatching {
+                                                context.startActivity(Intent(Settings.ACTION_IGNORE_BATTERY_OPTIMIZATION_SETTINGS))
+                                            }
+                                        }
+                                        "app_list" -> {
+                                            runCatching {
+                                                context.startActivity(
+                                                    Intent(
+                                                        Settings.ACTION_APPLICATION_DETAILS_SETTINGS,
+                                                        Uri.parse("package:${context.packageName}")
+                                                    )
+                                                )
+                                            }
+                                        }
+                                        "root" -> {
+                                            coroutineScope.launch {
+                                                try {
+                                                    val process = Runtime.getRuntime().exec(arrayOf("su", "-c", "id"))
+                                                    process.waitFor()
+                                                } catch (e: Exception) {
+                                                    // no-op
+                                                }
+                                                agentState.refreshPermissionHealth()
+                                            }
+                                        }
+                                    }
+                                }
                             }
                         },
                     )
