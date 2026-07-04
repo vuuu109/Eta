@@ -630,7 +630,7 @@ internal class AgentRuntimeService : Service(), LifecycleOwner, SavedStateRegist
     private fun panelLayoutParams(): WindowManager.LayoutParams =
         WindowManager.LayoutParams(
             WindowManager.LayoutParams.MATCH_PARENT,
-            WindowManager.LayoutParams.WRAP_CONTENT,
+            panelWindowHeightPx(),
             WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY,
             WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE,
             PixelFormat.TRANSLUCENT
@@ -646,11 +646,7 @@ internal class AgentRuntimeService : Service(), LifecycleOwner, SavedStateRegist
         val wm = windowManager ?: return
         val panel = panelView ?: return
         val lp = panelParams ?: return
-        val nextHeight = if (focusable) {
-            dpToPx(380)
-        } else {
-            WindowManager.LayoutParams.WRAP_CONTENT
-        }
+        val nextHeight = panelWindowHeightPx()
         val nextFlags = if (focusable) {
             lp.flags and WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE.inv()
         } else {
@@ -659,11 +655,12 @@ internal class AgentRuntimeService : Service(), LifecycleOwner, SavedStateRegist
         if (lp.flags == nextFlags && lp.height == nextHeight) return
         lp.flags = nextFlags
         lp.height = nextHeight
-        lp.y = 0
         runCatching { wm.updateViewLayout(panel, lp) }.onFailure { throwable ->
             AndroidAgentLogger.warn("Agent runtime panel focus update failed: ${throwable.message ?: throwable.javaClass.simpleName}")
         }
     }
+
+    private fun panelWindowHeightPx(): Int = dpToPx(PANEL_WINDOW_HEIGHT_DP)
 
     @Suppress("DEPRECATION")
     private fun glowLayoutParams(): WindowManager.LayoutParams {
@@ -796,6 +793,7 @@ internal class AgentRuntimeService : Service(), LifecycleOwner, SavedStateRegist
         const val ACTION_KEEP_ALIVE = "fuck.andes.agent.runtime.KEEP_ALIVE"
         const val HIDE_DELAY_MS = 2_500L
         const val RESULT_REVIEW_DELAY_MS = 120_000L
+        const val PANEL_WINDOW_HEIGHT_DP = 380
     }
 
     private data class CompletedRunContext(

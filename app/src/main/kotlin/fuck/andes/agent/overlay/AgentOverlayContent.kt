@@ -40,7 +40,6 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
-import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
@@ -361,6 +360,7 @@ private fun TaskStatusPanel(
 
     fun enterSupplementMode() {
         supplementTransitionRevision += 1
+        onSupplementModeChange(true)
         supplementMode = true
     }
 
@@ -441,7 +441,6 @@ private fun TaskStatusPanel(
                 onValueChange = { supplementText = it },
                 onCancel = ::closeSupplementMode,
                 onSend = ::submitSupplement,
-                onFocusReady = { onSupplementModeChange(true) }
             )
         }
 
@@ -503,7 +502,6 @@ private fun SupplementInput(
     onValueChange: (String) -> Unit,
     onCancel: () -> Unit,
     onSend: () -> Unit,
-    onFocusReady: () -> Unit,
 ) {
     val isDark = isSystemInDarkTheme()
     val focusRequester = remember { FocusRequester() }
@@ -513,8 +511,6 @@ private fun SupplementInput(
 
     LaunchedEffect(Unit) {
         delay(180)
-        onFocusReady()
-        delay(20) // Give WindowManager time to update focusable flags
         focusRequester.requestFocus()
         keyboard?.show()
     }
