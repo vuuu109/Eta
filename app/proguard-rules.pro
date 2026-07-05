@@ -36,3 +36,35 @@
 -dontwarn io.github.libxposed.service.**
 
 # 配置 key 是字符串常量并通过静态调用访问，不需要保留类名或成员名。
+
+# ── DataStore / Preferences ─────────────────────────────────────────────────
+-keepclassmembers class * extends androidx.datastore.preferences.protobuf.GeneratedMessageLite {
+    <fields>;
+}
+
+# ── kotlinx.serialization ───────────────────────────────────────────────────
+-keepattributes *Annotation*, InnerClasses, EnclosingMethod, Signature, Exceptions, SourceFile, LineNumberTable
+-keepclassmembers class kotlinx.serialization.json.** { *** Companion; }
+-keepclasseswithmembers class * {
+    @kotlinx.serialization.Serializable <methods>;
+}
+-keepclassmembers @kotlinx.serialization.Serializable class ** {
+    *;
+}
+-keepclassmembers class **$Companion {
+    kotlinx.serialization.KSerializer serializer(...);
+}
+-if @kotlinx.serialization.Serializable class **$Companion
+-keepnames class <1>$Companion
+
+# ── OkHttp / Okio ───────────────────────────────────────────────────────────
+-dontwarn okhttp3.**
+-dontwarn okio.**
+-dontwarn org.conscrypt.**
+-dontwarn org.bouncycastle.**
+-dontwarn org.openjsse.**
+-keepattributes Signature
+-keepattributes *Annotation*
+-keep class okhttp3.** { *; }
+-keep interface okhttp3.** { *; }
+-keep class okio.** { *; }
