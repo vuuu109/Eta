@@ -2,6 +2,7 @@ package fuck.andes.data.datastore
 
 import android.content.Context
 import androidx.datastore.core.DataStore
+import androidx.datastore.preferences.core.MutablePreferences
 import androidx.datastore.preferences.core.Preferences
 import androidx.datastore.preferences.core.edit
 import androidx.datastore.preferences.core.emptyPreferences
@@ -13,19 +14,12 @@ import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.catch
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.map
-import kotlinx.serialization.encodeToString
-import kotlinx.serialization.json.Json
 
 internal object SettingsDataStore {
     private const val STORE_NAME = "fuck_andes_settings"
 
-    private val SETTINGS_JSON = stringPreferencesKey("settings_json")
-
-    private val json = Json {
-        ignoreUnknownKeys = true
-        encodeDefaults = true
-        prettyPrint = false
-    }
+    private val SELECTED_PROVIDER_ID = stringPreferencesKey("selected_provider_id")
+    private val SELECTED_MODEL_ID = stringPreferencesKey("selected_model_id")
 
     private val Context.dataStore: DataStore<Preferences> by preferencesDataStore(name = STORE_NAME)
 
@@ -49,7 +43,10 @@ internal object SettingsDataStore {
                 }
             }
             .map { prefs ->
-                prefs[SETTINGS_JSON]?.let(::decodeSettings) ?: Settings()
+                Settings(
+                    selectedProviderId = prefs[SELECTED_PROVIDER_ID],
+                    selectedModelId = prefs[SELECTED_MODEL_ID],
+                )
             }
     }
 
@@ -58,8 +55,13 @@ internal object SettingsDataStore {
     suspend fun updateSettings(transform: (Settings) -> Settings) {
         ensureInitialized()
         dataStore.edit { prefs ->
-            val current = prefs[SETTINGS_JSON]?.let(::decodeSettings) ?: Settings()
-            prefs[SETTINGS_JSON] = json.encodeToString(transform(current))
+            val current = Settings(
+                selectedProviderId = prefs[SELECTED_PROVIDER_ID],
+                selectedModelId = prefs[SELECTED_MODEL_ID],
+            )
+            val updated = transform(current)
+            prefs.putOrRemove(SELECTED_PROVIDER_ID, updated.selectedProviderId)
+            prefs.putOrRemove(SELECTED_MODEL_ID, updated.selectedModelId)
         }
     }
 
@@ -77,16 +79,26 @@ internal object SettingsDataStore {
         updateSettings { it.copy(selectedModelId = id) }
     }
 
-    fun encode(settings: Settings): String = json.encodeToString(settings)
-
-    fun decode(raw: String): Settings = decodeSettings(raw)
-
-    private fun decodeSettings(raw: String): Settings =
-        runCatching { json.decodeFromString<Settings>(raw) }.getOrDefault(Settings())
+    suspend fun setSelection(providerId: String?, modelId: String?) {
+        updateSettings {
+            it.copy(
+                selectedProviderId = providerId,
+                selectedModelId = modelId,
+            )
+        }
+    }
 
     private fun ensureInitialized() {
         check(::dataStore.isInitialized) {
             "SettingsDataStore.init(context) must be called in Application.onCreate()"
+        }
+    }
+
+    private fun MutablePreferences.putOrRemove(key: Preferences.Key<String>, value: String?) {
+        if (value.isNullOrBlank()) {
+            remove(key)
+        } else {
+            this[key] = value
         }
     }
 }

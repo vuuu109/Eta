@@ -1,6 +1,12 @@
 package fuck.andes.data.repository
 
+import android.content.Context
 import fuck.andes.data.datastore.SettingsDataStore
+import fuck.andes.data.db.FuckAndesDatabase
+import fuck.andes.data.db.ProviderWithModelsSeed
+import fuck.andes.data.db.toDomain
+import fuck.andes.data.db.toEntity
+import fuck.andes.data.db.toModelEntities
 import fuck.andes.data.model.AnthropicProviderSetting
 import fuck.andes.data.model.CustomProviderSetting
 import fuck.andes.data.model.Model
@@ -8,6 +14,7 @@ import fuck.andes.data.model.OpenAiCompatibleProviderSetting
 import fuck.andes.data.model.OpenAiEndpointMode
 import fuck.andes.data.model.ProviderSetting
 import fuck.andes.data.model.Settings
+import fuck.andes.data.model.selectedOrFirstModel
 import fuck.andes.data.model.withApiKey
 import fuck.andes.data.model.withModels
 import fuck.andes.data.model.withSortOrder
@@ -17,8 +24,21 @@ import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.map
 
 internal object ProviderRepository {
+    @Volatile
+    private lateinit var applicationContext: Context
+
+    fun init(context: Context) {
+        if (!::applicationContext.isInitialized) {
+            applicationContext = context.applicationContext
+        }
+    }
+
     fun providersFlow(): Flow<List<ProviderSetting>> =
-        SettingsDataStore.settingsFlow().map { it.providers.sortedBy(ProviderSetting::sortOrder) }
+        dao().providersFlow().map { providers ->
+            providers
+                .map { it.toDomain() }
+                .sortedBy(ProviderSetting::sortOrder)
+        }
 
     fun settingsFlow(): Flow<Settings> =
         SettingsDataStore.settingsFlow()
@@ -27,18 +47,21 @@ internal object ProviderRepository {
         SettingsDataStore.settings()
 
     suspend fun allProviders(): List<ProviderSetting> =
-        SettingsDataStore.settings().providers.sortedBy(ProviderSetting::sortOrder)
+        dao().providers()
+            .map { it.toDomain() }
+            .sortedBy(ProviderSetting::sortOrder)
 
     suspend fun providerById(id: String): ProviderSetting? =
-        SettingsDataStore.settings().providers.firstOrNull { it.id == id }
+        dao().providerById(id)?.toDomain()
+
+    suspend fun providerByModelId(modelId: String): ProviderSetting? =
+        dao().providerByModelId(modelId)?.toDomain()
 
     suspend fun addProvider(provider: ProviderSetting): ProviderSetting {
-        var added = provider
-        SettingsDataStore.updateSettings { settings ->
-            val nextOrder = (settings.providers.maxOfOrNull { it.sortOrder } ?: -1) + 1
-            added = provider.withSortOrder(nextOrder)
-            settings.copy(providers = settings.providers + added)
-        }
+        val nextOrder = (allProviders().maxOfOrNull { it.sortOrder } ?: -1) + 1
+        val added = provider.withSortOrder(nextOrder)
+        replaceProvider(added)
+        repairSelection()
         return added
     }
 
@@ -54,7 +77,7 @@ internal object ProviderRepository {
                         id = newId(),
                         modelId = "model-id",
                         displayName = "自定义模型",
-                        supportsTools = true
+                        supportsTools = true,
                     )
                 )
             )
@@ -74,88 +97,115 @@ internal object ProviderRepository {
                         supportsVision = true,
                         supportsTools = true,
                         supportsReasoning = true,
-                        contextWindow = 1_000_000
+                        contextWindow = 1_000_000,
                     )
                 )
             )
         )
 
     suspend fun updateProvider(provider: ProviderSetting) {
-        SettingsDataStore.updateSettings { settings ->
-            settings.copy(
-                providers = settings.providers.map { current ->
-                    if (current.id == provider.id) provider else current
-                }
-            ).repairSelection()
-        }
+        replaceProvider(provider)
+        repairSelection()
     }
 
     suspend fun deleteProvider(id: String) {
-        SettingsDataStore.updateSettings { settings ->
-            val provider = settings.providers.firstOrNull { it.id == id } ?: return@updateSettings settings
-            if (provider.isBuiltIn) return@updateSettings settings
-            settings.copy(providers = settings.providers.filterNot { it.id == id }).repairSelection()
-        }
+        val provider = providerById(id) ?: return
+        if (provider.isBuiltIn) return
+        dao().deleteProvider(id)
+        repairSelection()
     }
 
     suspend fun copyProvider(id: String): ProviderSetting? {
-        var copy: ProviderSetting? = null
-        SettingsDataStore.updateSettings { settings ->
-            val source = settings.providers.firstOrNull { it.id == id } ?: return@updateSettings settings
-            val nextOrder = (settings.providers.maxOfOrNull { it.sortOrder } ?: -1) + 1
-            copy = source.deepCopy(
-                id = newId(),
-                name = "${source.name} 副本",
-                sortOrder = nextOrder,
-                builtIn = false
-            )
-            settings.copy(providers = settings.providers + checkNotNull(copy))
-        }
+        val source = providerById(id) ?: return null
+        val nextOrder = (allProviders().maxOfOrNull { it.sortOrder } ?: -1) + 1
+        val copy = source.deepCopy(
+            id = newId(),
+            name = "${source.name} 副本",
+            sortOrder = nextOrder,
+            builtIn = false,
+        )
+        replaceProvider(copy)
+        repairSelection()
         return copy
     }
 
     suspend fun resetBuiltIn(id: String) {
         val builtIn = BuiltinProviders.providerById(id) ?: return
-        SettingsDataStore.updateSettings { settings ->
-            val current = settings.providers.firstOrNull { it.id == id }
-            settings.copy(
-                providers = settings.providers.map { provider ->
-                    if (provider.id == id) {
-                        if (current == null) builtIn else builtIn
-                            .withApiKey(current.apiKey)
-                            .withSortOrder(current.sortOrder)
-                    } else {
-                        provider
-                    }
-                }
-            ).repairSelection()
-        }
+        val current = providerById(id)
+        val restored = current
+            ?.let { builtIn.withApiKey(it.apiKey).withSortOrder(it.sortOrder) }
+            ?: builtIn
+        replaceProvider(restored)
+        repairSelection()
     }
 
     suspend fun ensureBuiltInsMerged() {
-        SettingsDataStore.updateSettings { settings ->
-            if (settings.providers.isEmpty()) {
-                BuiltinProviders.defaultSettings()
-            } else {
-                val existingIds = settings.providers.mapTo(mutableSetOf()) { it.id }
-                val missing = BuiltinProviders.PROVIDERS.filterNot { it.id in existingIds }
-                if (missing.isEmpty()) settings else settings.copy(
-                    providers = (settings.providers + missing).sortedBy(ProviderSetting::sortOrder)
-                ).repairSelection()
-            }
+        val current = allProviders()
+        if (current.isEmpty()) {
+            insertProviders(BuiltinProviders.PROVIDERS)
+            repairSelection()
+            return
         }
+
+        val existingIds = current.mapTo(mutableSetOf()) { it.id }
+        val missing = BuiltinProviders.PROVIDERS.filterNot { it.id in existingIds }
+        if (missing.isNotEmpty()) {
+            insertProviders(missing)
+            repairSelection()
+        } else {
+            repairSelection()
+        }
+    }
+
+    suspend fun repairSelection(): Settings {
+        val providers = allProviders()
+        val settings = SettingsDataStore.settings()
+        val selectedProvider = providers.firstOrNull { it.id == settings.selectedProviderId && it.isEnabled }
+            ?: providers.firstOrNull { it.isEnabled }
+        val selectedModel = selectedProvider?.selectedOrFirstModel(settings.selectedModelId)
+        val repaired = settings.copy(
+            selectedProviderId = selectedProvider?.id,
+            selectedModelId = selectedModel?.id,
+        )
+        SettingsDataStore.setSelection(repaired.selectedProviderId, repaired.selectedModelId)
+        return repaired
     }
 
     fun newId(): String = UUID.randomUUID().toString()
 
-    fun repair(settings: Settings): Settings =
-        settings.repairSelection()
+    private fun dao() =
+        FuckAndesDatabase.get(appContext()).providerDao()
+
+    private fun appContext(): Context {
+        check(::applicationContext.isInitialized) {
+            "ProviderRepository.init(context) must be called in Application.onCreate()"
+        }
+        return applicationContext
+    }
+
+    private suspend fun replaceProvider(provider: ProviderSetting) {
+        dao().replaceProvider(
+            provider = provider.toEntity(),
+            models = provider.toModelEntities(),
+        )
+    }
+
+    private suspend fun insertProviders(providers: List<ProviderSetting>) {
+        dao().insertProvidersWithModels(
+            providers.map { provider ->
+                ProviderWithModelsSeed(
+                    provider = provider.toEntity(),
+                    models = provider.toModelEntities(),
+                )
+            }
+        )
+    }
 
     private fun ProviderSetting.deepCopy(
         id: String,
         name: String,
         sortOrder: Int,
-        builtIn: Boolean
+        builtIn: Boolean,
     ): ProviderSetting {
         val copiedModels = models.mapIndexed { index, model ->
             model.copy(id = newId(), isBuiltIn = builtIn, sortOrder = index)
@@ -166,48 +216,24 @@ internal object ProviderRepository {
                 name = name,
                 sortOrder = sortOrder,
                 isBuiltIn = builtIn,
-                models = copiedModels
+                models = copiedModels,
             )
+
             is AnthropicProviderSetting -> copy(
                 id = id,
                 name = name,
                 sortOrder = sortOrder,
                 isBuiltIn = builtIn,
-                models = copiedModels
+                models = copiedModels,
             )
+
             is CustomProviderSetting -> copy(
                 id = id,
                 name = name,
                 sortOrder = sortOrder,
                 isBuiltIn = builtIn,
-                models = copiedModels
+                models = copiedModels,
             )
         }
-    }
-
-    private fun Settings.repairSelection(): Settings {
-        val sortedProviders = providers.sortedBy(ProviderSetting::sortOrder)
-        val selectedProvider = sortedProviders.firstOrNull { it.id == selectedProviderId && it.isEnabled }
-            ?: sortedProviders.firstOrNull { it.isEnabled }
-        val selectedModel = selectedProvider?.models
-            ?.firstOrNull { it.id == selectedModelId && it.isEnabled }
-            ?: selectedProvider?.models
-                ?.filter { it.isEnabled }
-                ?.minByOrNull { it.sortOrder }
-        return copy(
-            providers = sortedProviders,
-            selectedProviderId = selectedProvider?.id,
-            selectedModelId = selectedModel?.id
-        )
-    }
-
-    private fun BuiltinProviders.defaultSettings(): Settings {
-        val provider = PROVIDERS.first()
-        val model = provider.models.minByOrNull { it.sortOrder }
-        return Settings(
-            providers = PROVIDERS,
-            selectedProviderId = provider.id,
-            selectedModelId = model?.id
-        )
     }
 }

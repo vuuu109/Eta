@@ -1,6 +1,5 @@
 package fuck.andes.data.repository
 
-import fuck.andes.data.datastore.SettingsDataStore
 import fuck.andes.data.model.Model
 import fuck.andes.data.model.withModels
 import java.util.UUID
@@ -14,15 +13,15 @@ internal object ModelRepository {
         }
 
     fun allModelsByProviderFlow(providerId: String): Flow<List<Model>> =
-        SettingsDataStore.settingsFlow().map { settings ->
-            settings.providers.firstOrNull { it.id == providerId }
+        ProviderRepository.providersFlow().map { providers ->
+            providers.firstOrNull { it.id == providerId }
                 ?.models
                 ?.sortedBy { it.sortOrder }
                 .orEmpty()
         }
 
     suspend fun modelsByProvider(providerId: String): List<Model> =
-        SettingsDataStore.settings().providers.firstOrNull { it.id == providerId }
+        ProviderRepository.providerById(providerId)
             ?.models
             ?.sortedBy { it.sortOrder }
             .orEmpty()
@@ -68,18 +67,11 @@ internal object ModelRepository {
 
     private suspend fun updateProviderModels(
         providerId: String,
-        transform: (List<Model>) -> List<Model>
+        transform: (List<Model>) -> List<Model>,
     ) {
-        SettingsDataStore.updateSettings { settings ->
-            settings.copy(
-                providers = settings.providers.map { provider ->
-                    if (provider.id == providerId) {
-                        provider.withModels(transform(provider.models).sortedBy { it.sortOrder })
-                    } else {
-                        provider
-                    }
-                }
-            ).let(ProviderRepository::repair)
-        }
+        val provider = ProviderRepository.providerById(providerId) ?: return
+        ProviderRepository.updateProvider(
+            provider.withModels(transform(provider.models).sortedBy { it.sortOrder })
+        )
     }
 }
