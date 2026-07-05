@@ -17,10 +17,7 @@ class AgentRunArchiveStoreTest {
     @Before
     fun setUp() {
         context = RuntimeEnvironment.getApplication()
-        context.getSharedPreferences("agent_run_archive", Context.MODE_PRIVATE)
-            .edit()
-            .clear()
-            .commit()
+        context.deleteDatabase("fuck_andes.db")
     }
 
     @Test
