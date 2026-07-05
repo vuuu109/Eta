@@ -237,7 +237,7 @@ internal class AgentRuntimeService : Service(), LifecycleOwner, SavedStateRegist
                         skillContext = skillContext
                     ) { event ->
                         if (activeRunController == runController) {
-                            AndroidAgentLogger.info("Agent runtime event: ${event.toLogLine()}")
+                            AndroidAgentLogger.debug("Agent runtime event: ${event.toLogLine()}")
                             archivedEvents += event
                             sendEvent(event)
                             val revealsForegroundOperation =

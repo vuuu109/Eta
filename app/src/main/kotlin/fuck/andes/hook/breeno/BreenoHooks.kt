@@ -467,7 +467,7 @@ internal object BreenoHooks {
                         )
                     ) { event ->
                         if (activeAgentRun.get() === runState) {
-                            logger.info("Agent event: ${event.toLogLine()}")
+                            logger.debug("Agent event: ${event.toLogLine()}")
                             streamRenderer.onEvent(event)
                         }
                     }
