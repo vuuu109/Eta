@@ -10,4 +10,6 @@ sealed interface AppRoute : NavKey {
     data object Permissions : AppRoute
     data object SystemEnhance : AppRoute
     data object Settings : AppRoute
+    data object ModelProviders : AppRoute
+    data class ModelProviderDetail(val providerId: String) : AppRoute
 }

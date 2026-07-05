@@ -14,8 +14,8 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.shape.CircleShape
-import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.collectAsState
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.res.painterResource
 import com.composables.icons.lucide.R as LucideR
@@ -27,11 +27,7 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.input.nestedscroll.nestedScroll
-import androidx.compose.ui.text.input.KeyboardType
-import androidx.compose.ui.text.input.PasswordVisualTransformation
-import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
@@ -39,7 +35,10 @@ import androidx.lifecycle.compose.LocalLifecycleOwner
 import fuck.andes.FuckAndesApp
 import fuck.andes.agent.accessibility.AgentAccessibilityService
 import fuck.andes.config.Prefs
+import fuck.andes.data.repository.ProviderRepository
+import fuck.andes.data.repository.RuntimeConfigRepository
 import fuck.andes.systemizer.GoogleAppSystemizerInstaller
+import fuck.andes.ui.navigation.AppRoute
 import fuck.andes.systemizer.RootManager
 import fuck.andes.systemizer.SystemizerInstallResult
 import kotlinx.coroutines.Dispatchers
@@ -81,13 +80,14 @@ private val ColorOSOrange = Color(0xFFFF8800) // 标准鲜橙
  * 不允许写入，避免保存到 hook 进程不可见的本地配置。
  */
 @Composable
-internal fun SettingsScreen(context: Context) {
+internal fun SettingsScreen(
+    context: Context,
+    onNavigate: (AppRoute) -> Unit,
+) {
     val scrollBehavior = MiuixScrollBehavior()
     val coroutineScope = rememberCoroutineScope()
     var showSystemizerDialog by remember { mutableStateOf(false) }
     var installingSystemizer by remember { mutableStateOf(false) }
-    var editingTextPref by remember { mutableStateOf<TextPrefSpec?>(null) }
-    var prefRevision by remember { mutableStateOf(0) }
 
     // 悬浮窗权限状态：授权后从系统设置返回时（ON_RESUME）刷新。
     var overlayGranted by remember {
@@ -108,6 +108,22 @@ internal fun SettingsScreen(context: Context) {
         onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
     }
 
+    // Provider / Model 选中状态展示
+    val providers by ProviderRepository.providersFlow().collectAsState(initial = emptyList())
+    val selectedProviderId by RuntimeConfigRepository.selectedProviderIdFlow()
+        .collectAsState(initial = null)
+    val selectedModelId by RuntimeConfigRepository.selectedModelIdFlow()
+        .collectAsState(initial = null)
+    val selectedProvider = remember(providers, selectedProviderId) {
+        providers.find { it.id == selectedProviderId }
+    }
+    val selectedModel = remember(selectedProvider, selectedModelId) {
+        selectedProvider?.models?.find { it.id == selectedModelId }
+    }
+    val providerSummary = selectedProvider?.let { provider ->
+        "${provider.name} / ${selectedModel?.displayName ?: "未选择模型"}"
+    } ?: "未配置"
+
     // prefs 绑定到 XposedService：service 到达时切换到 RemotePreferences（跨进程提交到
     // LSPosed 数据库）；未就绪时保持 null，UI 禁止修改。
     var prefs by remember { mutableStateOf(Prefs.remotePreferencesForUi(FuckAndesApp.serviceInstance)) }
@@ -115,6 +131,9 @@ internal fun SettingsScreen(context: Context) {
         val listener = object : FuckAndesApp.ServiceStateListener {
             override fun onServiceStateChanged(service: io.github.libxposed.service.XposedService?) {
                 prefs = Prefs.remotePreferencesForUi(service)
+                coroutineScope.launch {
+                    RuntimeConfigRepository.migrateLegacyConfig(service)
+                }
             }
         }
         FuckAndesApp.addServiceStateListener(listener, notifyImmediately = true)
@@ -260,57 +279,16 @@ internal fun SettingsScreen(context: Context) {
                         iconTint = ColorOSRoyalBlue,
                     )
                     PrefDivider()
-                    TextPref(
-                        prefs = prefs,
-                        title = "API 地址",
-                        key = Prefs.Keys.AGENT_BASE_URL,
-                        icon = LucideR.drawable.lucide_ic_link,
-                        iconTint = ColorOSVividGreen,
-                        revision = prefRevision,
-                        onClick = { editingTextPref = it },
-                    )
-                    PrefDivider()
-                    TextPref(
-                        prefs = prefs,
-                        title = "API Key",
-                        key = Prefs.Keys.AGENT_API_KEY,
-                        icon = LucideR.drawable.lucide_ic_key,
-                        iconTint = ColorOSRed,
-                        sensitive = true,
-                        revision = prefRevision,
-                        onClick = { editingTextPref = it },
-                    )
-                    PrefDivider()
-                    TextPref(
-                        prefs = prefs,
-                        title = "模型名",
-                        key = Prefs.Keys.AGENT_MODEL,
-                        icon = LucideR.drawable.lucide_ic_tag,
-                        iconTint = ColorOSPurple,
-                        revision = prefRevision,
-                        onClick = { editingTextPref = it },
-                    )
-                    PrefDivider()
-                    TextPref(
-                        prefs = prefs,
-                        title = "系统提示词",
-                        key = Prefs.Keys.AGENT_SYSTEM_PROMPT,
-                        icon = LucideR.drawable.lucide_ic_file_text,
-                        iconTint = ColorOSLightBlue,
-                        singleLine = false,
-                        revision = prefRevision,
-                        onClick = { editingTextPref = it },
-                    )
-                    PrefDivider()
-                    TextPref(
-                        prefs = prefs,
-                        title = "额外请求体 JSON",
-                        key = Prefs.Keys.AGENT_EXTRA_BODY_JSON,
-                        icon = LucideR.drawable.lucide_ic_code,
-                        iconTint = ColorOSOrange,
-                        singleLine = false,
-                        revision = prefRevision,
-                        onClick = { editingTextPref = it },
+                    ArrowPreference(
+                        title = "模型提供商",
+                        summary = providerSummary,
+                        startAction = {
+                            TintedIcon(
+                                icon = LucideR.drawable.lucide_ic_cpu,
+                                tint = ColorOSPurple,
+                            )
+                        },
+                        onClick = { onNavigate(AppRoute.ModelProviders) },
                     )
                     PrefDivider()
                     ArrowPreference(
@@ -450,16 +428,6 @@ internal fun SettingsScreen(context: Context) {
                 }
             },
         )
-        TextPrefDialog(
-            context = context,
-            prefs = prefs,
-            spec = editingTextPref,
-            onDismissRequest = { editingTextPref = null },
-            onSaved = {
-                prefs = Prefs.remotePreferencesForUi(FuckAndesApp.serviceInstance)
-                prefRevision++
-            },
-        )
     }
 }
 
@@ -590,110 +558,6 @@ private fun SwitchPref(
     )
 }
 
-@Composable
-private fun TextPref(
-    prefs: SharedPreferences?,
-    title: String,
-    key: String,
-    icon: Int,
-    iconTint: Color,
-    sensitive: Boolean = false,
-    singleLine: Boolean = true,
-    revision: Int,
-    onClick: (TextPrefSpec) -> Unit,
-) {
-    val enabled = prefs != null
-    val default = Prefs.Keys.STRING_DEFAULTS[key].orEmpty()
-    val value = remember(prefs, key, revision) {
-        prefs?.getString(key, default) ?: default
-    }
-    ArrowPreference(
-        title = title,
-        startAction = {
-            TintedIcon(icon = icon, tint = iconTint)
-        },
-        endActions = {
-            Text(
-                text = summarizeTextPref(value, sensitive),
-                fontSize = MiuixTheme.textStyles.body2.fontSize,
-                color = MiuixTheme.colorScheme.onSurfaceVariantActions,
-            )
-        },
-        enabled = enabled,
-        onClick = {
-            onClick(
-                TextPrefSpec(
-                    title = title,
-                    key = key,
-                    value = value,
-                    sensitive = sensitive,
-                    singleLine = singleLine,
-                )
-            )
-        },
-    )
-}
-
-@Composable
-private fun TextPrefDialog(
-    context: Context,
-    prefs: SharedPreferences?,
-    spec: TextPrefSpec?,
-    onDismissRequest: () -> Unit,
-    onSaved: () -> Unit,
-) {
-    if (spec == null) return
-    var value by remember(spec.key, spec.value) { mutableStateOf(spec.value) }
-    OverlayDialog(
-        show = true,
-        title = spec.title,
-        onDismissRequest = onDismissRequest,
-    ) {
-        TextField(
-            value = value,
-            onValueChange = { value = it },
-            modifier = Modifier.fillMaxWidth().padding(bottom = 16.dp),
-            singleLine = spec.singleLine,
-            maxLines = if (spec.singleLine) 1 else 5,
-            visualTransformation = if (spec.sensitive) {
-                PasswordVisualTransformation()
-            } else {
-                VisualTransformation.None
-            },
-            keyboardOptions = if (spec.sensitive) {
-                KeyboardOptions(keyboardType = KeyboardType.Password)
-            } else {
-                KeyboardOptions.Default
-            },
-        )
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.spacedBy(12.dp),
-        ) {
-            TextButton(
-                text = "取消",
-                onClick = onDismissRequest,
-                modifier = Modifier.weight(1f),
-            )
-            TextButton(
-                text = "保存",
-                onClick = {
-                    val targetPrefs = prefs ?: return@TextButton
-                    if (putStringSync(targetPrefs, spec.key, value.trim())) {
-                        onSaved()
-                        Toast.makeText(context.applicationContext, "已保存", Toast.LENGTH_SHORT).show()
-                        onDismissRequest()
-                    } else {
-                        Toast.makeText(context.applicationContext, "配置写入失败", Toast.LENGTH_SHORT).show()
-                    }
-                },
-                modifier = Modifier.weight(1f),
-                colors = ButtonDefaults.textButtonColorsPrimary(),
-            )
-        }
-    }
-}
-
 /**
  * 同步写入布尔值。RemotePreferences 的 [commit] 先更新本进程 map 再同步等待 binder 提交，
  * 失败（binder RemoteException）返回 false 但本进程 map 已被改写——此时 hook 进程收不到新值。
@@ -713,14 +577,6 @@ private fun putStringSync(
 ): Boolean =
     runCatching { prefs.edit().putString(key, value).commit() }.getOrDefault(false)
 
-private fun summarizeTextPref(value: String, sensitive: Boolean): String =
-    when {
-        value.isBlank() -> "未配置"
-        sensitive -> "已配置"
-        value.length > 18 -> value.take(18) + "..."
-        else -> value
-    }
-
 private fun isAgentAccessibilityEnabled(context: Context): Boolean {
     val expected = android.content.ComponentName(
         context,
@@ -732,14 +588,6 @@ private fun isAgentAccessibilityEnabled(context: Context): Boolean {
     ).orEmpty()
     return enabledServices.split(':').any { it.equals(expected, ignoreCase = true) }
 }
-
-private data class TextPrefSpec(
-    val title: String,
-    val key: String,
-    val value: String,
-    val sensitive: Boolean,
-    val singleLine: Boolean,
-)
 
 private fun SystemizerInstallResult.toToastMessage(): String =
     when (this) {

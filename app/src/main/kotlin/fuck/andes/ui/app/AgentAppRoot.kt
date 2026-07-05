@@ -20,10 +20,14 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalFocusManager
 import androidx.navigation3.runtime.NavKey
+import fuck.andes.FuckAndesApp
+import fuck.andes.data.repository.RuntimeConfigRepository
 import androidx.navigation3.runtime.entryProvider
 import androidx.navigation3.runtime.rememberDecoratedNavEntries
 import androidx.navigation3.ui.NavDisplay
 import fuck.andes.ui.SettingsScreen
+import fuck.andes.ui.pages.providers.ModelProviderDetailScreen
+import fuck.andes.ui.pages.providers.ModelProviderListScreen
 import fuck.andes.ui.model.AgentChatAction
 import fuck.andes.ui.model.AgentHomeAction
 import fuck.andes.ui.model.AgentSkillsAction
@@ -57,6 +61,10 @@ fun AgentAppRoot() {
 
     var conversationPaneOpen by remember { mutableStateOf(false) }
     val focusManager = LocalFocusManager.current
+
+    LaunchedEffect(Unit) {
+        RuntimeConfigRepository.migrateLegacyConfig(FuckAndesApp.serviceInstance)
+    }
 
     fun pushRoute(
         route: AppRoute,
@@ -262,7 +270,26 @@ fun AgentAppRoot() {
                 }
             }
             entry<AppRoute.Settings> {
-                SettingsScreen(context = context)
+                SettingsScreen(
+                    context = context,
+                    onNavigate = { route -> pushRoute(route) }
+                )
+            }
+            entry<AppRoute.ModelProviders> {
+                RoutedShell(route = AppRoute.ModelProviders) {
+                    ModelProviderListScreen(
+                        onNavigate = { route -> pushRoute(route) },
+                        onBack = ::popRoute
+                    )
+                }
+            }
+            entry<AppRoute.ModelProviderDetail> { route ->
+                RoutedShell(route = route) {
+                    ModelProviderDetailScreen(
+                        providerId = route.providerId,
+                        onBack = ::popRoute
+                    )
+                }
             }
         }
     }

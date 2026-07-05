@@ -22,6 +22,7 @@ import fuck.andes.agent.runtime.AgentUiHandoffPayload
 import fuck.andes.agent.skill.SkillRuntime
 import fuck.andes.config.Prefs
 import fuck.andes.core.AndroidAgentLogger
+import fuck.andes.data.repository.RuntimeConfigRepository
 import fuck.andes.ui.model.AgentChatHomeUiState
 import fuck.andes.ui.model.AgentChatMessageUi
 import fuck.andes.ui.model.AgentMessageUi
@@ -922,31 +923,8 @@ private fun buildPermissionHealthState(context: Context): PermissionHealthUiStat
     )
 }
 
-private fun loadModelConfigForUi(): AgentModelClient.ModelConfig {
-    val prefs = Prefs.remotePreferencesForUi(FuckAndesApp.serviceInstance)
-    return if (prefs != null) {
-        AgentModelClient.ModelConfig(
-            baseUrl = prefs.getTrimmedString(Prefs.Keys.AGENT_BASE_URL),
-            apiKey = prefs.getTrimmedString(Prefs.Keys.AGENT_API_KEY),
-            model = prefs.getTrimmedString(Prefs.Keys.AGENT_MODEL),
-            systemPrompt = prefs.getTrimmedString(Prefs.Keys.AGENT_SYSTEM_PROMPT),
-            terminalTools = prefs.getBoolean(
-                Prefs.Keys.AGENT_TERMINAL_TOOLS,
-                Prefs.Keys.BOOLEAN_DEFAULTS[Prefs.Keys.AGENT_TERMINAL_TOOLS] ?: false,
-            ),
-            thinkingEnabled = prefs.getBoolean(
-                Prefs.Keys.AGENT_THINKING_ENABLED,
-                Prefs.Keys.BOOLEAN_DEFAULTS[Prefs.Keys.AGENT_THINKING_ENABLED] ?: false,
-            ),
-            extraBodyJson = prefs.getTrimmedString(Prefs.Keys.AGENT_EXTRA_BODY_JSON),
-        )
-    } else {
-        AgentModelClient.loadConfig()
-    }
-}
-
-private fun SharedPreferences.getTrimmedString(key: String): String =
-    getString(key, Prefs.Keys.STRING_DEFAULTS[key].orEmpty()).orEmpty().trim()
+private fun loadModelConfigForUi(): AgentModelClient.ModelConfig =
+    AgentModelClient.loadConfig()
 
 private fun AgentTokenUsage.toUi(): TokenUsageUi =
     TokenUsageUi(
