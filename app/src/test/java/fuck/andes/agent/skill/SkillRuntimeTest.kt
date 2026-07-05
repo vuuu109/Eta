@@ -2,6 +2,7 @@ package fuck.andes.agent.skill
 
 import java.io.File
 import org.junit.Assert.assertEquals
+import org.junit.Before
 import org.junit.Rule
 import org.junit.Test
 import org.junit.rules.TemporaryFolder
@@ -15,6 +16,11 @@ import org.robolectric.annotation.Config
 class SkillRuntimeTest {
     @get:Rule
     val temporaryFolder = TemporaryFolder()
+
+    @Before
+    fun setUp() {
+        RuntimeEnvironment.getApplication().deleteDatabase("fuck_andes.db")
+    }
 
     @Test
     fun seedBuiltinSkillsDoesNotOverwriteExistingBuiltinData() {

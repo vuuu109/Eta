@@ -2,6 +2,10 @@ package fuck.andes.agent.skill
 
 import android.content.Context
 import android.content.res.AssetManager
+import fuck.andes.data.db.FuckAndesDatabase
+import fuck.andes.data.db.SkillRegistryEntity
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.runBlocking
 import org.json.JSONArray
 import org.json.JSONObject
 import java.io.File
@@ -11,7 +15,6 @@ private const val BUILTIN_SOURCE = "builtin"
 private const val USER_SOURCE = "user"
 private const val INSTALL_STATE_INSTALLED = "installed"
 private const val INSTALL_STATE_REMOVED_BUILTIN = "removed_builtin"
-private const val SKILL_REGISTRY_FILE_NAME = ".skill_registry.json"
 
 /** 内置技能 manifest 条目。 */
 private data class BuiltinSkillAsset(
@@ -33,53 +36,68 @@ private data class SkillRegistryEntry(
 )
 
 // =====================================================================================
-// SkillRegistryStore — 持久化到 .skill_registry.json
+// SkillRegistryStore — 持久化技能安装元数据；技能正文仍保留在文件树中。
 // =====================================================================================
 
 private class SkillRegistryStore(
-    private val registryFile: File,
+    context: Context,
 ) {
+    private val appContext = context.applicationContext
+
     fun read(): LinkedHashMap<String, SkillRegistryEntry> {
-        if (!registryFile.exists()) return linkedMapOf()
         return runCatching {
-            val json = JSONObject(registryFile.readText())
-            val result = linkedMapOf<String, SkillRegistryEntry>()
-            json.keys().forEach { key ->
-                val obj = json.optJSONObject(key) ?: return@forEach
-                result[key] = SkillRegistryEntry(
-                    enabled = obj.optBoolean("enabled", true),
-                    source = obj.optString("source", USER_SOURCE).ifBlank { USER_SOURCE },
-                    installState = obj.optString("installState", INSTALL_STATE_INSTALLED)
-                        .ifBlank { INSTALL_STATE_INSTALLED },
-                )
+            runBlocking(Dispatchers.IO) {
+                FuckAndesDatabase.get(appContext)
+                    .skillDao()
+                    .registryEntries()
+                    .associateTo(linkedMapOf()) { entity ->
+                        entity.skillId to SkillRegistryEntry(
+                            enabled = entity.enabled,
+                            source = entity.source.ifBlank { USER_SOURCE },
+                            installState = entity.installState.ifBlank { INSTALL_STATE_INSTALLED },
+                        )
+                    }
             }
-            result
         }.getOrElse { linkedMapOf() }
     }
 
     fun write(entries: Map<String, SkillRegistryEntry>) {
-        registryFile.parentFile?.mkdirs()
-        val json = JSONObject()
-        entries.toSortedMap().forEach { (key, value) ->
-            json.put(key, JSONObject().apply {
-                put("enabled", value.enabled)
-                put("source", value.source)
-                put("installState", value.installState)
-            })
+        runBlocking(Dispatchers.IO) {
+            FuckAndesDatabase.get(appContext)
+                .skillDao()
+                .replaceRegistry(
+                    entries.toSortedMap().map { (skillId, value) ->
+                        SkillRegistryEntity(
+                            skillId = skillId,
+                            enabled = value.enabled,
+                            source = value.source,
+                            installState = value.installState,
+                        )
+                    }
+                )
         }
-        registryFile.writeText(json.toString(2))
     }
 
     fun set(skillId: String, entry: SkillRegistryEntry) {
-        val updated = read()
-        updated[skillId] = entry
-        write(updated)
+        runBlocking(Dispatchers.IO) {
+            FuckAndesDatabase.get(appContext)
+                .skillDao()
+                .upsertRegistryEntry(
+                    SkillRegistryEntity(
+                        skillId = skillId,
+                        enabled = entry.enabled,
+                        source = entry.source,
+                        installState = entry.installState,
+                    )
+                )
+        }
     }
 
     fun remove(skillId: String) {
-        val updated = read()
-        if (updated.remove(skillId) != null) {
-            write(updated)
+        runBlocking(Dispatchers.IO) {
+            FuckAndesDatabase.get(appContext)
+                .skillDao()
+                .deleteRegistryEntry(skillId)
         }
     }
 }
@@ -180,7 +198,7 @@ class SkillIndexService(
     private val context: Context,
     private val skillsRoot: File,
 ) {
-    private fun registryStore() = SkillRegistryStore(File(skillsRoot, SKILL_REGISTRY_FILE_NAME))
+    private fun registryStore() = SkillRegistryStore(context)
     private fun builtinStore() = BuiltinSkillAssetStore(context.applicationContext, skillsRoot)
 
     fun seedBuiltinSkillsIfNeeded() {
