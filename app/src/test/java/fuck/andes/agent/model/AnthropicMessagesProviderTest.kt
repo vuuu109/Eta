@@ -25,6 +25,9 @@ class AnthropicMessagesProviderTest {
                 .put("type", "content_block_delta")
                 .put("index", 0)
                 .put("delta", JSONObject().put("type", "text_delta").put("text", "Hello"))))
+            append(event("content_block_stop", JSONObject()
+                .put("type", "content_block_stop")
+                .put("index", 0)))
             append(event("content_block_start", JSONObject()
                 .put("type", "content_block_start")
                 .put("index", 1)
@@ -39,6 +42,9 @@ class AnthropicMessagesProviderTest {
                 .put("delta", JSONObject()
                     .put("type", "input_json_delta")
                     .put("partial_json", "{\"include_screenshot\":true}"))))
+            append(event("content_block_stop", JSONObject()
+                .put("type", "content_block_stop")
+                .put("index", 1)))
             append(event("message_delta", JSONObject()
                 .put("type", "message_delta")
                 .put("delta", JSONObject().put("stop_reason", "tool_use"))
@@ -84,8 +90,44 @@ class AnthropicMessagesProviderTest {
                 toolCall.getJSONObject("function").getString("arguments")
             )
             assertTrue(requestBody.get().contains("\"tools\""))
-            assertEquals("Hello", events.filterIsInstance<ProviderEvent.TextDelta>().joinToString("") { it.delta })
+            assertEquals(
+                "Hello",
+                events.filterIsInstance<ProviderEvent.BlockDelta>()
+                    .filter { it.kind == AssistantBlockKind.TEXT }
+                    .joinToString("") { it.delta }
+            )
             assertEquals(1, events.filterIsInstance<ProviderEvent.Usage>().size)
+        }
+    }
+
+    @Test
+    fun completeBuildsAdaptiveThinkingRequestWhenEnabled() {
+        val body = buildString {
+            append(event("message_stop", JSONObject().put("type", "message_stop")))
+        }
+
+        val requestBody = AtomicReference<String>()
+        withAnthropicServer(body, onRequest = requestBody::set) { baseUrl ->
+            AnthropicMessagesProvider.complete(
+                request = ProviderRequest(
+                    config = AgentModelClient.ModelConfig(
+                        providerType = ProviderTypes.ANTHROPIC,
+                        providerSourceType = "anthropic",
+                        baseUrl = baseUrl,
+                        apiKey = "key",
+                        model = "claude-sonnet-5",
+                        systemPrompt = "system",
+                        thinkingEnabled = true,
+                    ),
+                    messages = JSONArray().put(JSONObject().put("role", "user").put("content", "hi")),
+                    tools = JSONArray(),
+                ),
+                runController = AgentRunController(),
+            )
+
+            val request = JSONObject(requestBody.get())
+            assertEquals("adaptive", request.getJSONObject("thinking").getString("type"))
+            assertEquals("medium", request.getJSONObject("output_config").getString("effort"))
         }
     }
 

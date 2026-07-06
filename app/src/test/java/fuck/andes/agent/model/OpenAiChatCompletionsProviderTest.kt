@@ -33,7 +33,9 @@ class OpenAiChatCompletionsProviderTest {
             assertEquals("Hello", response.assistantMessage.getString("content"))
             assertEquals(
                 "Hello",
-                events.filterIsInstance<ProviderEvent.TextDelta>().joinToString("") { it.delta }
+                events.filterIsInstance<ProviderEvent.BlockDelta>()
+                    .filter { it.kind == AssistantBlockKind.TEXT }
+                    .joinToString("") { it.delta }
             )
         }
     }
@@ -99,9 +101,11 @@ class OpenAiChatCompletionsProviderTest {
             assertEquals("需要调用工具。", response.assistantMessage.getString("reasoning_content"))
             assertEquals(
                 "需要调用工具。",
-                events.filterIsInstance<ProviderEvent.ReasoningDelta>().joinToString("") { it.delta }
+                events.filterIsInstance<ProviderEvent.BlockDelta>()
+                    .filter { it.kind == AssistantBlockKind.THINKING }
+                    .joinToString("") { it.delta }
             )
-            assertEquals(2, events.filterIsInstance<ProviderEvent.ToolCallDelta>().size)
+            assertEquals(2, events.filterIsInstance<ProviderEvent.BlockDelta>().count { it.kind == AssistantBlockKind.TOOL_CALL })
         }
     }
 
@@ -179,6 +183,58 @@ class OpenAiChatCompletionsProviderTest {
         }
     }
 
+    @Test
+    fun completeBuildsDeepSeekThinkingRequest() {
+        val requestBody = AtomicReference<String>()
+        val body = buildString {
+            append(sseChunk(JSONObject().put("content", "ok"), finishReason = "stop"))
+            append("data: [DONE]\n\n")
+        }
+
+        withSseServer(body, onRequest = { requestBody.set(it) }) { baseUrl ->
+            OpenAiChatCompletionsProvider.complete(
+                request = providerRequest(baseUrl) {
+                    it.copy(
+                        providerSourceType = "deepseek",
+                        model = "deepseek-v4-pro",
+                        thinkingEnabled = true,
+                    )
+                },
+                runController = AgentRunController(),
+            )
+
+            val request = JSONObject(requestBody.get())
+            assertEquals("enabled", request.getJSONObject("thinking").getString("type"))
+            assertEquals("high", request.getString("reasoning_effort"))
+        }
+    }
+
+    @Test
+    fun completeBuildsKimiPreservedThinkingRequest() {
+        val requestBody = AtomicReference<String>()
+        val body = buildString {
+            append(sseChunk(JSONObject().put("content", "ok"), finishReason = "stop"))
+            append("data: [DONE]\n\n")
+        }
+
+        withSseServer(body, onRequest = { requestBody.set(it) }) { baseUrl ->
+            OpenAiChatCompletionsProvider.complete(
+                request = providerRequest(baseUrl) {
+                    it.copy(
+                        providerSourceType = "moonshot",
+                        model = "kimi-k2.6",
+                        thinkingEnabled = true,
+                    )
+                },
+                runController = AgentRunController(),
+            )
+
+            val thinking = JSONObject(requestBody.get()).getJSONObject("thinking")
+            assertEquals("enabled", thinking.getString("type"))
+            assertEquals("all", thinking.getString("keep"))
+        }
+    }
+
     private fun providerRequest(
         baseUrl: String,
         configTransform: (AgentModelClient.ModelConfig) -> AgentModelClient.ModelConfig = { it }
@@ -186,6 +242,7 @@ class OpenAiChatCompletionsProviderTest {
         ProviderRequest(
             config = configTransform(
                 AgentModelClient.ModelConfig(
+                    providerSourceType = "custom",
                     baseUrl = baseUrl,
                     apiKey = "test-key",
                     model = "test-model",

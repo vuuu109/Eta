@@ -52,6 +52,7 @@ internal object AgentRuntimeWire {
     private const val KEY_PROVIDER_ID = "provider_id"
     private const val KEY_PROVIDER_NAME = "provider_name"
     private const val KEY_PROVIDER_TYPE = "provider_type"
+    private const val KEY_PROVIDER_SOURCE_TYPE = "provider_source_type"
     private const val KEY_BASE_URL = "base_url"
     private const val KEY_API_KEY = "api_key"
     private const val KEY_MODEL = "model"
@@ -66,6 +67,9 @@ internal object AgentRuntimeWire {
     private const val KEY_CUSTOM_BODY_JSON = "custom_body_json"
     private const val KEY_IMAGES = "images"
     private const val KEY_HISTORY = "history"
+    private const val KEY_CONTENT_JSON = "content_json"
+    private const val KEY_TOOL_CALL_ID = "tool_call_id"
+    private const val KEY_TOOL_CALLS_JSON = "tool_calls_json"
     private const val KEY_ROLE = "role"
     private const val KEY_DATA_URL = "data_url"
     private const val KEY_MIME_TYPE = "mime_type"
@@ -78,6 +82,7 @@ internal object AgentRuntimeWire {
     private const val KEY_REASONING_CONTENT = "reasoning_content"
     private const val KEY_ERROR = "error"
     private const val KEY_RESULT = "result"
+    private const val KEY_TRANSCRIPT_JSON = "transcript_json"
     private const val KEY_HANDOFF = "handoff"
     private const val KEY_HANDOFF_ID = "handoff_id"
     private const val KEY_HANDOFF_SOURCE = "handoff_source"
@@ -102,7 +107,8 @@ internal object AgentRuntimeWire {
         val ok: Boolean,
         val content: String,
         val error: String? = null,
-        val reasoningContent: String = ""
+        val reasoningContent: String = "",
+        val transcript: List<AgentModelClient.ConversationMessage> = emptyList(),
     )
 
     data class EntryHandoff(
@@ -132,6 +138,7 @@ internal object AgentRuntimeWire {
         putString(KEY_PROVIDER_ID, request.config.providerId)
         putString(KEY_PROVIDER_NAME, request.config.providerName)
         putString(KEY_PROVIDER_TYPE, request.config.providerType)
+        putString(KEY_PROVIDER_SOURCE_TYPE, request.config.providerSourceType)
         putString(KEY_BASE_URL, request.config.baseUrl)
         putString(KEY_API_KEY, request.config.apiKey)
         putString(KEY_MODEL, request.config.model)
@@ -151,6 +158,10 @@ internal object AgentRuntimeWire {
                 Bundle().apply {
                     putString(KEY_ROLE, message.role)
                     putString(KEY_CONTENT, message.content)
+                    putString(KEY_CONTENT_JSON, message.contentJson)
+                    putString(KEY_TOOL_CALL_ID, message.toolCallId)
+                    putString(KEY_REASONING_CONTENT, message.reasoningContent)
+                    putString(KEY_TOOL_CALLS_JSON, message.toolCallsJson)
                 }
             })
         )
@@ -178,6 +189,7 @@ internal object AgentRuntimeWire {
                 providerName = bundle.getString(KEY_PROVIDER_NAME).orEmpty(),
                 providerType = bundle.getString(KEY_PROVIDER_TYPE).orEmpty()
                     .ifBlank { fuck.andes.data.model.ProviderTypes.OPENAI_COMPATIBLE },
+                providerSourceType = bundle.getString(KEY_PROVIDER_SOURCE_TYPE).orEmpty(),
                 baseUrl = bundle.getString(KEY_BASE_URL).orEmpty(),
                 apiKey = bundle.getString(KEY_API_KEY).orEmpty(),
                 model = bundle.getString(KEY_MODEL).orEmpty(),
@@ -196,7 +208,11 @@ internal object AgentRuntimeWire {
             history = bundle.getParcelableArrayList(KEY_HISTORY, Bundle::class.java).orEmpty().map { message ->
                 AgentModelClient.ConversationMessage(
                     role = message.getString(KEY_ROLE).orEmpty(),
-                    content = message.getString(KEY_CONTENT).orEmpty()
+                    content = message.getString(KEY_CONTENT).orEmpty(),
+                    contentJson = message.getString(KEY_CONTENT_JSON).orEmpty(),
+                    toolCallId = message.getString(KEY_TOOL_CALL_ID).orEmpty(),
+                    reasoningContent = message.getString(KEY_REASONING_CONTENT).orEmpty(),
+                    toolCallsJson = message.getString(KEY_TOOL_CALLS_JSON).orEmpty(),
                 )
             },
             images = bundle.getParcelableArrayList(KEY_IMAGES, Bundle::class.java).orEmpty().map { image ->
@@ -244,6 +260,7 @@ internal object AgentRuntimeWire {
         putString(KEY_CONTENT, result.content)
         putString(KEY_REASONING_CONTENT, result.reasoningContent)
         putString(KEY_ERROR, result.error)
+        putString(KEY_TRANSCRIPT_JSON, json.encodeToString(result.transcript))
     }
 
     fun runResultFromBundle(bundle: Bundle): RunResult =
@@ -252,7 +269,8 @@ internal object AgentRuntimeWire {
             ok = bundle.getBoolean(KEY_OK),
             content = bundle.getString(KEY_CONTENT).orEmpty(),
             error = bundle.getString(KEY_ERROR),
-            reasoningContent = bundle.getString(KEY_REASONING_CONTENT).orEmpty()
+            reasoningContent = bundle.getString(KEY_REASONING_CONTENT).orEmpty(),
+            transcript = decodeConversationHistory(bundle.getString(KEY_TRANSCRIPT_JSON)),
         )
 
     fun toBundle(completedRun: CompletedRun): Bundle = Bundle().apply {
@@ -312,26 +330,32 @@ internal object AgentRuntimeWire {
                 putInt("http_code", event.httpCode)
             }
 
-            is AgentEvent.AssistantTextDelta -> {
-                putString(KEY_TYPE, "assistant_text_delta")
+            is AgentEvent.AssistantBlockStart -> {
+                putString(KEY_TYPE, "assistant_block_start")
                 putInt("round", event.round)
-                putInt("delta_chars", event.deltaChars)
-                putString("delta", event.delta)
-            }
-
-            is AgentEvent.AssistantReasoningDelta -> {
-                putString(KEY_TYPE, "assistant_reasoning_delta")
-                putInt("round", event.round)
-                putInt("delta_chars", event.deltaChars)
-                putString("delta", event.delta)
-            }
-
-            is AgentEvent.ProviderToolCallDelta -> {
-                putString(KEY_TYPE, "provider_tool_call_delta")
-                putInt("round", event.round)
+                putString("kind", event.kind.name)
                 putInt("index", event.index)
+                putString("block_id", event.blockId)
                 putString("name", event.name)
-                putInt("arguments_chars", event.argumentsChars)
+            }
+
+            is AgentEvent.AssistantBlockDelta -> {
+                putString(KEY_TYPE, "assistant_block_delta")
+                putInt("round", event.round)
+                putString("kind", event.kind.name)
+                putInt("index", event.index)
+                putInt("delta_chars", event.deltaChars)
+                putString("delta", event.delta)
+            }
+
+            is AgentEvent.AssistantBlockEnd -> {
+                putString(KEY_TYPE, "assistant_block_end")
+                putInt("round", event.round)
+                putString("kind", event.kind.name)
+                putInt("index", event.index)
+                putString("block_id", event.blockId)
+                putString("name", event.name)
+                putInt("content_chars", event.contentChars)
             }
 
             is AgentEvent.AssistantReceived -> {
@@ -416,23 +440,35 @@ internal object AgentRuntimeWire {
             httpCode = bundle.getInt("http_code"),
         )
 
-        "assistant_text_delta" -> AgentEvent.AssistantTextDelta(
+        "assistant_block_start" -> AgentEvent.AssistantBlockStart(
             round = bundle.getInt("round"),
-            deltaChars = bundle.getInt("delta_chars"),
-            delta = bundle.getString("delta").orEmpty(),
-        )
-
-        "assistant_reasoning_delta" -> AgentEvent.AssistantReasoningDelta(
-            round = bundle.getInt("round"),
-            deltaChars = bundle.getInt("delta_chars"),
-            delta = bundle.getString("delta").orEmpty(),
-        )
-
-        "provider_tool_call_delta" -> AgentEvent.ProviderToolCallDelta(
-            round = bundle.getInt("round"),
+            kind = AgentEvent.AssistantBlockKind.valueOf(
+                bundle.getString("kind").orEmpty()
+            ),
             index = bundle.getInt("index"),
+            blockId = bundle.getString("block_id"),
             name = bundle.getString("name"),
-            argumentsChars = bundle.getInt("arguments_chars"),
+        )
+
+        "assistant_block_delta" -> AgentEvent.AssistantBlockDelta(
+            round = bundle.getInt("round"),
+            kind = AgentEvent.AssistantBlockKind.valueOf(
+                bundle.getString("kind").orEmpty()
+            ),
+            index = bundle.getInt("index"),
+            deltaChars = bundle.getInt("delta_chars"),
+            delta = bundle.getString("delta").orEmpty(),
+        )
+
+        "assistant_block_end" -> AgentEvent.AssistantBlockEnd(
+            round = bundle.getInt("round"),
+            kind = AgentEvent.AssistantBlockKind.valueOf(
+                bundle.getString("kind").orEmpty()
+            ),
+            index = bundle.getInt("index"),
+            blockId = bundle.getString("block_id"),
+            name = bundle.getString("name"),
+            contentChars = bundle.getInt("content_chars"),
         )
 
         "assistant_received" -> AgentEvent.AssistantReceived(
@@ -514,4 +550,11 @@ internal object AgentRuntimeWire {
     private fun decodeCustomBody(raw: String?): List<CustomBody> =
         if (raw.isNullOrBlank()) emptyList()
         else runCatching { json.decodeFromString<List<CustomBody>>(raw) }.getOrDefault(emptyList())
+
+    private fun decodeConversationHistory(raw: String?): List<AgentModelClient.ConversationMessage> =
+        if (raw.isNullOrBlank()) emptyList()
+        else {
+            runCatching { json.decodeFromString<List<AgentModelClient.ConversationMessage>>(raw) }
+                .getOrDefault(emptyList())
+        }
 }

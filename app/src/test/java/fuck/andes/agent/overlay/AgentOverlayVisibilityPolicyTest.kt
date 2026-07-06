@@ -18,19 +18,33 @@ class AgentOverlayVisibilityPolicyTest {
             AgentEvent.RoundStarted(round = 1, messageCount = 2),
             AgentEvent.ProviderRequestStarted(round = 1),
             AgentEvent.ProviderResponseStarted(round = 1, httpCode = 200),
-            AgentEvent.AssistantReasoningDelta(round = 1, deltaChars = 7, delta = "thinking"),
-            AgentEvent.AssistantTextDelta(round = 1, deltaChars = 5, delta = "hello"),
+            AgentEvent.AssistantBlockDelta(
+                round = 1,
+                kind = AgentEvent.AssistantBlockKind.THINKING,
+                index = 0,
+                deltaChars = 7,
+                delta = "thinking"
+            ),
+            AgentEvent.AssistantBlockDelta(
+                round = 1,
+                kind = AgentEvent.AssistantBlockKind.TEXT,
+                index = 1,
+                deltaChars = 5,
+                delta = "hello"
+            ),
             AgentEvent.AssistantReceived(
                 round = 1,
                 contentChars = 5,
                 reasoningContent = "",
                 toolNames = emptyList()
             ),
-            AgentEvent.ProviderToolCallDelta(
+            AgentEvent.AssistantBlockEnd(
                 round = 1,
-                index = 0,
+                kind = AgentEvent.AssistantBlockKind.TOOL_CALL,
+                index = 2,
+                blockId = "call_terminal",
                 name = "terminal",
-                argumentsChars = 12
+                contentChars = 12
             ),
             AgentEvent.AssistantReceived(
                 round = 1,
@@ -88,11 +102,13 @@ class AgentOverlayVisibilityPolicyTest {
     fun `foreground operation tools reveal operation overlay before execution`() {
         assertTrue(
             AgentOverlayVisibilityPolicy.shouldRevealFor(
-                AgentEvent.ProviderToolCallDelta(
+                AgentEvent.AssistantBlockEnd(
                     round = 1,
+                    kind = AgentEvent.AssistantBlockKind.TOOL_CALL,
                     index = 0,
+                    blockId = "call_1",
                     name = "tap",
-                    argumentsChars = 12
+                    contentChars = 12
                 )
             )
         )

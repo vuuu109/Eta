@@ -129,6 +129,7 @@ internal object AnthropicMessagesProvider : AgentProviderClient {
                 val system = systemParts.joinToString("\n\n").trim()
                 if (system.isNotBlank()) request.put("system", system)
                 convertTools(tools)?.let { request.put("tools", it) }
+                ProviderReasoning.applyAnthropicRequest(request, config)
                 RequestBodyMerge.mergeCustomBody(request, config.customBody)
             }
     }
@@ -317,13 +318,15 @@ internal object AnthropicMessagesProvider : AgentProviderClient {
                     ?.takeIf { it.length() > 0 }
                     ?.let { item.arguments.append(it.toString()) }
                 blocks[index] = item
-                if (item.type == "tool_use") {
-                    onEvent(
-                        ProviderEvent.ToolCallDelta(
+                when (item.type) {
+                    "text" -> onEvent(ProviderEvent.BlockStart(AssistantBlockKind.TEXT, index))
+                    "thinking" -> onEvent(ProviderEvent.BlockStart(AssistantBlockKind.THINKING, index))
+                    "tool_use" -> onEvent(
+                        ProviderEvent.BlockStart(
+                            kind = AssistantBlockKind.TOOL_CALL,
                             index = index,
-                            id = item.id.ifBlank { null },
+                            blockId = item.id.ifBlank { null },
                             name = item.name.ifBlank { null },
-                            argumentsDelta = ""
                         )
                     )
                 }
@@ -336,15 +339,33 @@ internal object AnthropicMessagesProvider : AgentProviderClient {
                     "text_delta" -> {
                         val text = delta.optString("text")
                         if (text.isNotEmpty()) {
+                            blocks.getOrPut(index) { AnthropicBlock(index = index, type = "text") }
+                                .text
+                                .append(text)
                             content.append(text)
-                            onEvent(ProviderEvent.TextDelta(text))
+                            onEvent(
+                                ProviderEvent.BlockDelta(
+                                    kind = AssistantBlockKind.TEXT,
+                                    index = index,
+                                    delta = text,
+                                )
+                            )
                         }
                     }
                     "thinking_delta" -> {
                         val text = delta.optString("thinking")
                         if (text.isNotEmpty()) {
+                            blocks.getOrPut(index) { AnthropicBlock(index = index, type = "thinking") }
+                                .thinking
+                                .append(text)
                             reasoning.append(text)
-                            onEvent(ProviderEvent.ReasoningDelta(text))
+                            onEvent(
+                                ProviderEvent.BlockDelta(
+                                    kind = AssistantBlockKind.THINKING,
+                                    index = index,
+                                    delta = text,
+                                )
+                            )
                         }
                     }
                     "input_json_delta" -> {
@@ -353,16 +374,35 @@ internal object AnthropicMessagesProvider : AgentProviderClient {
                             val block = blocks.getOrPut(index) { AnthropicBlock(index = index, type = "tool_use") }
                             block.arguments.append(partial)
                             onEvent(
-                                ProviderEvent.ToolCallDelta(
+                                ProviderEvent.BlockDelta(
+                                    kind = AssistantBlockKind.TOOL_CALL,
                                     index = index,
-                                    id = block.id.ifBlank { null },
-                                    name = block.name.ifBlank { null },
-                                    argumentsDelta = partial
+                                    delta = partial,
                                 )
                             )
                         }
                     }
                 }
+                EventResult()
+            }
+            "content_block_stop" -> {
+                val index = json.optInt("index")
+                val block = blocks[index] ?: return EventResult()
+                val kind = when (block.type) {
+                    "text" -> AssistantBlockKind.TEXT
+                    "thinking" -> AssistantBlockKind.THINKING
+                    "tool_use" -> AssistantBlockKind.TOOL_CALL
+                    else -> return EventResult()
+                }
+                onEvent(
+                    ProviderEvent.BlockEnd(
+                        kind = kind,
+                        index = index,
+                        blockId = block.id.ifBlank { null },
+                        name = block.name.ifBlank { null },
+                        content = block.content(),
+                    )
+                )
                 EventResult()
             }
             "message_delta" -> EventResult(
@@ -379,8 +419,17 @@ internal object AnthropicMessagesProvider : AgentProviderClient {
         var type: String = "",
         var id: String = "",
         var name: String = "",
+        val text: StringBuilder = StringBuilder(),
+        val thinking: StringBuilder = StringBuilder(),
         val arguments: StringBuilder = StringBuilder()
     ) {
+        fun content(): String =
+            when (type) {
+                "text" -> text.toString()
+                "thinking" -> thinking.toString()
+                else -> arguments.toString()
+            }
+
         fun toToolCallJson(position: Int): JSONObject =
             JSONObject()
                 .put("id", id.ifBlank { "tool_call_$position" })

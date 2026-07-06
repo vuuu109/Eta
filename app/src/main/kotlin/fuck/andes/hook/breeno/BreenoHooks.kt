@@ -915,12 +915,13 @@ internal object BreenoHooks {
         fun onEvent(event: AgentEvent) {
             if (finished || disabled) return
             when (event) {
-                is AgentEvent.AssistantReasoningDelta -> {
-                    if (event.delta.isBlank()) return
-                    reasoningState = BREENO_REASONING_STATE
-                    pendingReasoning.append(event.delta)
-                    scheduleFlush(force = pendingReasoning.length >= BREENO_STREAM_FLUSH_CHARS)
-                }
+                is AgentEvent.AssistantBlockDelta ->
+                    if (event.kind == AgentEvent.AssistantBlockKind.THINKING) {
+                        if (event.delta.isBlank()) return
+                        reasoningState = BREENO_REASONING_STATE
+                        pendingReasoning.append(event.delta)
+                        scheduleFlush(force = pendingReasoning.length >= BREENO_STREAM_FLUSH_CHARS)
+                    }
 
                 is AgentEvent.ToolStarted -> {
                     if (!created && pendingReasoning.isEmpty()) return

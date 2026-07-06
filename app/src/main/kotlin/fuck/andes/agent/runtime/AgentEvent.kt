@@ -3,6 +3,12 @@ package fuck.andes.agent.runtime
 internal sealed interface AgentEvent {
     fun toLogLine(): String
 
+    enum class AssistantBlockKind {
+        TEXT,
+        THINKING,
+        TOOL_CALL,
+    }
+
     data class RunStarted(
         val initialImages: Int,
         val initialImageBytes: Int,
@@ -36,32 +42,38 @@ internal sealed interface AgentEvent {
             "provider_response_started round=$round, http_code=$httpCode"
     }
 
-    data class AssistantTextDelta(
+    data class AssistantBlockStart(
         val round: Int,
-        val deltaChars: Int,
-        val delta: String
-    ) : AgentEvent {
-        override fun toLogLine(): String =
-            "assistant_text_delta round=$round, chars=$deltaChars"
-    }
-
-    data class AssistantReasoningDelta(
-        val round: Int,
-        val deltaChars: Int,
-        val delta: String
-    ) : AgentEvent {
-        override fun toLogLine(): String =
-            "assistant_reasoning_delta round=$round, chars=$deltaChars"
-    }
-
-    data class ProviderToolCallDelta(
-        val round: Int,
+        val kind: AssistantBlockKind,
         val index: Int,
-        val name: String?,
-        val argumentsChars: Int
+        val blockId: String? = null,
+        val name: String? = null,
     ) : AgentEvent {
         override fun toLogLine(): String =
-            "provider_tool_call_delta round=$round, index=$index, name=$name, args_chars=$argumentsChars"
+            "assistant_block_start round=$round, kind=$kind, index=$index, id=$blockId, name=$name"
+    }
+
+    data class AssistantBlockDelta(
+        val round: Int,
+        val kind: AssistantBlockKind,
+        val index: Int,
+        val deltaChars: Int,
+        val delta: String,
+    ) : AgentEvent {
+        override fun toLogLine(): String =
+            "assistant_block_delta round=$round, kind=$kind, index=$index, chars=$deltaChars"
+    }
+
+    data class AssistantBlockEnd(
+        val round: Int,
+        val kind: AssistantBlockKind,
+        val index: Int,
+        val blockId: String? = null,
+        val name: String? = null,
+        val contentChars: Int,
+    ) : AgentEvent {
+        override fun toLogLine(): String =
+            "assistant_block_end round=$round, kind=$kind, index=$index, id=$blockId, name=$name, chars=$contentChars"
     }
 
     data class AssistantReceived(

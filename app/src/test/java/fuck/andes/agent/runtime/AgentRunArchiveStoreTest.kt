@@ -34,13 +34,17 @@ class AgentRunArchiveStoreTest {
                 ).toJson(),
             ),
             events = listOf(
-                AgentEvent.AssistantReasoningDelta(
+                AgentEvent.AssistantBlockDelta(
                     round = 1,
+                    kind = AgentEvent.AssistantBlockKind.THINKING,
+                    index = 0,
                     deltaChars = 2,
                     delta = "先",
                 ),
-                AgentEvent.AssistantReasoningDelta(
+                AgentEvent.AssistantBlockDelta(
                     round = 1,
+                    kind = AgentEvent.AssistantBlockKind.THINKING,
+                    index = 0,
                     deltaChars = 2,
                     delta = "看",
                 ),
@@ -80,8 +84,10 @@ class AgentRunArchiveStoreTest {
         assertEquals(archivedRun.result, restored.result)
         assertEquals(archivedRun.createdAt, restored.createdAt)
         assertEquals(
-            AgentEvent.AssistantReasoningDelta(
+            AgentEvent.AssistantBlockDelta(
                 round = 1,
+                kind = AgentEvent.AssistantBlockKind.THINKING,
+                index = 0,
                 deltaChars = 4,
                 delta = "先看",
             ),

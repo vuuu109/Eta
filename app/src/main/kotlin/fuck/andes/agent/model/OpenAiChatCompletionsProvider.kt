@@ -102,9 +102,7 @@ internal object OpenAiChatCompletionsProvider : AgentProviderClient {
             .put("tools", tools)
             .put("tool_choice", "auto")
             .also { request ->
-                if (config.thinkingEnabled) {
-                    request.put("enable_thinking", true)
-                }
+                ProviderReasoning.applyOpenAiCompatibleRequest(request, config)
                 mergeExtraBody(request, config.extraBodyJson)
                 RequestBodyMerge.mergeCustomBody(request, config.customBody)
             }
@@ -123,6 +121,9 @@ internal object OpenAiChatCompletionsProvider : AgentProviderClient {
         var sawStreamData = false
         var sawDone = false
         var finishReason: String? = null
+        var nextContentIndex = 0
+        var thinkingContentIndex: Int? = null
+        var textContentIndex: Int? = null
 
         BufferedReader(InputStreamReader(stream, Charsets.UTF_8)).use { reader ->
             while (true) {
@@ -152,22 +153,56 @@ internal object OpenAiChatCompletionsProvider : AgentProviderClient {
                 if (delta.has("reasoning_content") && !delta.isNull("reasoning_content")) {
                     val text = delta.optString("reasoning_content")
                     if (text.isNotEmpty()) {
+                        val index = thinkingContentIndex ?: nextContentIndex++
+                            .also {
+                                thinkingContentIndex = it
+                                onEvent(ProviderEvent.BlockStart(AssistantBlockKind.THINKING, it))
+                            }
                         reasoningContent.append(text)
-                        onEvent(ProviderEvent.ReasoningDelta(text))
+                        onEvent(
+                            ProviderEvent.BlockDelta(
+                                kind = AssistantBlockKind.THINKING,
+                                index = index,
+                                delta = text,
+                            )
+                        )
                     }
                 }
                 if (delta.has("content") && !delta.isNull("content")) {
                     val text = delta.optString("content")
                     if (text.isNotEmpty()) {
+                        val index = textContentIndex ?: nextContentIndex++
+                            .also {
+                                textContentIndex = it
+                                onEvent(ProviderEvent.BlockStart(AssistantBlockKind.TEXT, it))
+                            }
                         content.append(text)
-                        onEvent(ProviderEvent.TextDelta(text))
+                        onEvent(
+                            ProviderEvent.BlockDelta(
+                                kind = AssistantBlockKind.TEXT,
+                                index = index,
+                                delta = text,
+                            )
+                        )
                     }
                 }
                 val deltaToolCalls = delta.optJSONArray("tool_calls") ?: continue
                 for (i in 0 until deltaToolCalls.length()) {
                     val item = deltaToolCalls.optJSONObject(i) ?: continue
                     val index = item.optInt("index", i)
-                    val call = toolCalls.getOrPut(index) { StreamingToolCall(index) }
+                    val call = toolCalls.getOrPut(index) {
+                        StreamingToolCall(
+                            index = index,
+                            contentIndex = nextContentIndex++,
+                        ).also { created ->
+                            onEvent(
+                                ProviderEvent.BlockStart(
+                                    kind = AssistantBlockKind.TOOL_CALL,
+                                    index = created.contentIndex,
+                                )
+                            )
+                        }
+                    }
                     if (item.has("id") && !item.isNull("id")) call.id = item.optString("id")
                     if (item.has("type") && !item.isNull("type")) call.type = item.optString("type").ifBlank { "function" }
                     val function = item.optJSONObject("function")
@@ -175,20 +210,51 @@ internal object OpenAiChatCompletionsProvider : AgentProviderClient {
                     val argsDelta = function?.takeIf { it.has("arguments") && !it.isNull("arguments") }?.optString("arguments").orEmpty()
                     if (nameDelta.isNotEmpty()) call.name.append(nameDelta)
                     if (argsDelta.isNotEmpty()) call.arguments.append(argsDelta)
-                    onEvent(
-                        ProviderEvent.ToolCallDelta(
-                            index = index,
-                            id = call.id,
-                            name = nameDelta.ifBlank { null },
-                            argumentsDelta = argsDelta
+                    if (argsDelta.isNotEmpty()) {
+                        onEvent(
+                            ProviderEvent.BlockDelta(
+                                kind = AssistantBlockKind.TOOL_CALL,
+                                index = call.contentIndex,
+                                delta = argsDelta,
+                            )
                         )
-                    )
+                    }
                 }
             }
         }
 
         if (!sawStreamData) error("模型接口未返回 SSE data chunk")
         if (!sawDone) error("模型接口 SSE 流未正常结束")
+
+        thinkingContentIndex?.let { index ->
+            onEvent(
+                ProviderEvent.BlockEnd(
+                    kind = AssistantBlockKind.THINKING,
+                    index = index,
+                    content = reasoningContent.toString(),
+                )
+            )
+        }
+        textContentIndex?.let { index ->
+            onEvent(
+                ProviderEvent.BlockEnd(
+                    kind = AssistantBlockKind.TEXT,
+                    index = index,
+                    content = content.toString(),
+                )
+            )
+        }
+        toolCalls.values.sortedBy { it.contentIndex }.forEach { call ->
+            onEvent(
+                ProviderEvent.BlockEnd(
+                    kind = AssistantBlockKind.TOOL_CALL,
+                    index = call.contentIndex,
+                    blockId = call.id,
+                    name = call.name.toString().ifBlank { null },
+                    content = call.arguments.toString(),
+                )
+            )
+        }
 
         return JSONObject()
             .put("role", "assistant")
@@ -214,6 +280,7 @@ internal object OpenAiChatCompletionsProvider : AgentProviderClient {
 
     private data class StreamingToolCall(
         val index: Int,
+        val contentIndex: Int,
         var id: String? = null,
         var type: String = "function",
         val name: StringBuilder = StringBuilder(),

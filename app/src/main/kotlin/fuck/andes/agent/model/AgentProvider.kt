@@ -42,6 +42,12 @@ internal data class ProviderResponse(
     val assistantMessage: JSONObject
 )
 
+internal enum class AssistantBlockKind {
+    TEXT,
+    THINKING,
+    TOOL_CALL,
+}
+
 internal sealed interface ProviderEvent {
     data object RequestStarted : ProviderEvent
 
@@ -49,19 +55,25 @@ internal sealed interface ProviderEvent {
         val httpCode: Int
     ) : ProviderEvent
 
-    data class TextDelta(
-        val delta: String
-    ) : ProviderEvent
-
-    data class ReasoningDelta(
-        val delta: String
-    ) : ProviderEvent
-
-    data class ToolCallDelta(
+    data class BlockStart(
+        val kind: AssistantBlockKind,
         val index: Int,
-        val id: String?,
-        val name: String?,
-        val argumentsDelta: String
+        val blockId: String? = null,
+        val name: String? = null,
+    ) : ProviderEvent
+
+    data class BlockDelta(
+        val kind: AssistantBlockKind,
+        val index: Int,
+        val delta: String,
+    ) : ProviderEvent
+
+    data class BlockEnd(
+        val kind: AssistantBlockKind,
+        val index: Int,
+        val blockId: String? = null,
+        val name: String? = null,
+        val content: String = "",
     ) : ProviderEvent
 
     data class Usage(

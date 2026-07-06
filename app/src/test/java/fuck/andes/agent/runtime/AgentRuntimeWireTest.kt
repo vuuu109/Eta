@@ -16,6 +16,7 @@ class AgentRuntimeWireTest {
             runId = "run-1",
             prompt = "继续分析",
             config = AgentModelClient.ModelConfig(
+                providerSourceType = "bailian",
                 baseUrl = "https://dashscope.aliyuncs.com/compatible-mode/v1",
                 apiKey = "test-key",
                 model = "qwen3-max",
@@ -59,10 +60,23 @@ class AgentRuntimeWireTest {
     @Test
     fun eventBundleRoundTripPreservesReasoningAndUsage() {
         val events = listOf(
-            AgentEvent.AssistantReasoningDelta(
+            AgentEvent.AssistantBlockStart(
                 round = 2,
+                kind = AgentEvent.AssistantBlockKind.THINKING,
+                index = 0,
+            ),
+            AgentEvent.AssistantBlockDelta(
+                round = 2,
+                kind = AgentEvent.AssistantBlockKind.THINKING,
+                index = 0,
                 deltaChars = 4,
                 delta = "思考",
+            ),
+            AgentEvent.AssistantBlockEnd(
+                round = 2,
+                kind = AgentEvent.AssistantBlockKind.THINKING,
+                index = 0,
+                contentChars = 4,
             ),
             AgentEvent.AssistantReceived(
                 round = 2,
@@ -108,6 +122,13 @@ class AgentRuntimeWireTest {
             ok = true,
             content = "最终回答",
             reasoningContent = "先分析问题，再调用工具，最后总结。",
+            transcript = listOf(
+                AgentModelClient.ConversationMessage(
+                    role = "assistant",
+                    content = "最终回答",
+                    reasoningContent = "先分析问题，再调用工具，最后总结。",
+                )
+            ),
         )
 
         val roundTripped = AgentRuntimeWire.runResultFromBundle(AgentRuntimeWire.toBundle(result))

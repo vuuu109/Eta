@@ -269,7 +269,8 @@ internal class AgentRuntimeService : Service(), LifecycleOwner, SavedStateRegist
                         runId = request.runId,
                         ok = true,
                         content = response.content,
-                        reasoningContent = response.reasoningContent
+                        reasoningContent = response.reasoningContent,
+                        transcript = response.transcript,
                     )
                     val persistRequest = request.withActiveSupplements()
                     persistCompletedRun(persistRequest, result)

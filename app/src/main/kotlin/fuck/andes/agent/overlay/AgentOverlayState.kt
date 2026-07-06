@@ -52,19 +52,33 @@ internal fun AgentOverlayState.applyEvent(event: AgentEvent): AgentOverlayState 
         statusText = "模型已响应",
     )
 
-    is AgentEvent.AssistantTextDelta -> appendStreamingText(event)
+    is AgentEvent.AssistantBlockStart -> when (event.kind) {
+        AgentEvent.AssistantBlockKind.TEXT,
+        AgentEvent.AssistantBlockKind.THINKING -> this
 
-    is AgentEvent.AssistantReasoningDelta -> copy(
-        phase = AgentOverlayPhase.RUNNING,
-        round = event.round,
-        statusText = "正在思考",
-    )
+        AgentEvent.AssistantBlockKind.TOOL_CALL -> copy(
+            phase = AgentOverlayPhase.RUNNING,
+            round = event.round,
+            statusText = "正在生成工具参数",
+        )
+    }
 
-    is AgentEvent.ProviderToolCallDelta -> copy(
-        phase = AgentOverlayPhase.RUNNING,
-        round = event.round,
-        statusText = "正在生成工具参数",
-    )
+    is AgentEvent.AssistantBlockDelta -> when (event.kind) {
+        AgentEvent.AssistantBlockKind.TEXT -> appendStreamingText(event)
+        AgentEvent.AssistantBlockKind.THINKING -> copy(
+            phase = AgentOverlayPhase.RUNNING,
+            round = event.round,
+            statusText = "正在思考",
+        )
+
+        AgentEvent.AssistantBlockKind.TOOL_CALL -> copy(
+            phase = AgentOverlayPhase.RUNNING,
+            round = event.round,
+            statusText = "正在生成工具参数",
+        )
+    }
+
+    is AgentEvent.AssistantBlockEnd -> this
 
     is AgentEvent.AssistantReceived -> copy(
         phase = AgentOverlayPhase.RUNNING,
@@ -151,7 +165,7 @@ private fun String.toToolLabel(): String = when (this) {
 
 private const val MaxStreamingPreviewChars = 320
 
-private fun AgentOverlayState.appendStreamingText(event: AgentEvent.AssistantTextDelta): AgentOverlayState {
+private fun AgentOverlayState.appendStreamingText(event: AgentEvent.AssistantBlockDelta): AgentOverlayState {
     val nextPreview = (detailText + event.delta)
         .trimStart()
         .take(MaxStreamingPreviewChars)

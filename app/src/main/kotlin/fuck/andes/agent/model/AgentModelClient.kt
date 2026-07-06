@@ -11,10 +11,12 @@ import fuck.andes.data.model.CustomHeader
 import fuck.andes.data.model.OpenAiEndpointMode
 import fuck.andes.data.model.ProviderTypes
 import fuck.andes.data.provider.BuiltinProviders
+import fuck.andes.data.provider.ProviderSourceRegistry
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.Json
 import org.json.JSONArray
 import org.json.JSONObject
+import org.json.JSONTokener
 
 internal object AgentModelClient {
     private const val MAX_TRACE_CHARS = 240
@@ -40,6 +42,11 @@ internal object AgentModelClient {
             providerId = "builtin-openai",
             providerName = "OpenAI",
             providerType = ProviderTypes.OPENAI_COMPATIBLE,
+            providerSourceType = ProviderSourceRegistry.resolve(
+                providerId = "builtin-openai",
+                baseUrl = "https://api.openai.com/v1",
+                providerType = ProviderTypes.OPENAI_COMPATIBLE,
+            ),
             baseUrl = "https://api.openai.com/v1",
             apiKey = "",
             model = "gpt-5.5",
@@ -63,6 +70,7 @@ internal object AgentModelClient {
     ): ModelResponse.Text {
         config.validate()
         val messages = buildInitialMessages(config, prompt, images, history, skillContext)
+        val transcriptStartIndex = messages.length()
         val tools = buildToolsJson(config.terminalTools)
         onEvent(
             AgentEvent.RunStarted(
@@ -87,7 +95,10 @@ internal object AgentModelClient {
                     ),
                     runController = runController
                 ) { providerEvent ->
-                    if (providerEvent is ProviderEvent.ReasoningDelta) {
+                    if (
+                        providerEvent is ProviderEvent.BlockDelta &&
+                        providerEvent.kind == AssistantBlockKind.THINKING
+                    ) {
                         reasoningContent.append(providerEvent.delta)
                     }
                     providerEvent.toAgentEvent(round)?.let(onEvent)
@@ -163,7 +174,12 @@ internal object AgentModelClient {
                     onEvent(AgentEvent.RunFinished(round = round, contentChars = content.length))
                     return ModelResponse.Text(
                         content = content,
-                        reasoningContent = reasoningContent.toString().trim()
+                        reasoningContent = reasoningContent.toString().trim(),
+                        transcript = buildTranscript(
+                            messages = messages,
+                            transcriptStartIndex = transcriptStartIndex,
+                            finalAssistantMessage = assistantMessage,
+                        ),
                     )
                 }
                 val finishReason = assistantMessage.optString("finish_reason")
@@ -225,19 +241,19 @@ internal object AgentModelClient {
         }
         buildSkillSystemMessage(skillContext)?.let { messages.put(it) }
         history.forEach { item ->
-            val role = item.role.trim()
-            val content = item.content.trim()
-            if ((role == "user" || role == "assistant") && content.isNotBlank()) {
-                messages.put(
-                    JSONObject()
-                        .put("role", role)
-                        .put("content", content)
-                )
-            }
+            runCatching { item.toJsonObject() }
+                .getOrNull()
+                ?.let(messages::put)
         }
         messages.put(buildUserMessage(prompt, images))
         return messages
     }
+
+    fun buildUserHistoryMessage(
+        text: String,
+        images: List<ModelImage>,
+    ): ConversationMessage =
+        ConversationMessage.fromJsonObject(buildUserMessage(text, images))
 
     private fun buildUserMessage(text: String, images: List<ModelImage>): JSONObject {
         if (images.isEmpty()) {
@@ -1060,27 +1076,40 @@ internal object AgentModelClient {
         when (this) {
             ProviderEvent.RequestStarted -> AgentEvent.ProviderRequestStarted(round)
             is ProviderEvent.ResponseHeaders -> AgentEvent.ProviderResponseStarted(round, httpCode)
-            is ProviderEvent.TextDelta -> AgentEvent.AssistantTextDelta(
+            is ProviderEvent.BlockStart -> AgentEvent.AssistantBlockStart(
                 round = round,
-                deltaChars = delta.length,
-                delta = delta
-            )
-            is ProviderEvent.ReasoningDelta -> AgentEvent.AssistantReasoningDelta(
-                round = round,
-                deltaChars = delta.length,
-                delta = delta
-            )
-            is ProviderEvent.ToolCallDelta -> AgentEvent.ProviderToolCallDelta(
-                round = round,
+                kind = kind.toRuntimeKind(),
                 index = index,
+                blockId = blockId,
                 name = name,
-                argumentsChars = argumentsDelta.length
+            )
+            is ProviderEvent.BlockDelta -> AgentEvent.AssistantBlockDelta(
+                round = round,
+                kind = kind.toRuntimeKind(),
+                index = index,
+                deltaChars = delta.length,
+                delta = delta
+            )
+            is ProviderEvent.BlockEnd -> AgentEvent.AssistantBlockEnd(
+                round = round,
+                kind = kind.toRuntimeKind(),
+                index = index,
+                blockId = blockId,
+                name = name,
+                contentChars = content.length,
             )
             is ProviderEvent.Usage -> AgentEvent.UsageReceived(
                 round = round,
                 usage = usage
             )
             is ProviderEvent.Completed -> null
+        }
+
+    private fun AssistantBlockKind.toRuntimeKind(): AgentEvent.AssistantBlockKind =
+        when (this) {
+            AssistantBlockKind.TEXT -> AgentEvent.AssistantBlockKind.TEXT
+            AssistantBlockKind.THINKING -> AgentEvent.AssistantBlockKind.THINKING
+            AssistantBlockKind.TOOL_CALL -> AgentEvent.AssistantBlockKind.TOOL_CALL
         }
 
     private fun parseToolCalls(message: JSONObject): List<ToolCall> {
@@ -1127,6 +1156,20 @@ internal object AgentModelClient {
             }
     }
 
+    private fun buildTranscript(
+        messages: JSONArray,
+        transcriptStartIndex: Int,
+        finalAssistantMessage: JSONObject,
+    ): List<ConversationMessage> =
+        buildList {
+            for (index in transcriptStartIndex until messages.length()) {
+                messages.optJSONObject(index)
+                    ?.let(ConversationMessage::fromJsonObject)
+                    ?.let(::add)
+            }
+            add(ConversationMessage.fromJsonObject(finalAssistantMessage))
+        }
+
     private fun String.compactTrace(): String =
         replace('\n', ' ')
             .replace('\r', ' ')
@@ -1155,6 +1198,7 @@ internal object AgentModelClient {
         val providerId: String = "",
         val providerName: String = "",
         val providerType: String = ProviderTypes.OPENAI_COMPATIBLE,
+        val providerSourceType: String = "",
         val baseUrl: String,
         val apiKey: String,
         val model: String,
@@ -1169,10 +1213,52 @@ internal object AgentModelClient {
         val customBody: List<CustomBody> = emptyList()
     )
 
+    @Serializable
     data class ConversationMessage(
         val role: String,
-        val content: String
-    )
+        val content: String = "",
+        val contentJson: String = "",
+        val toolCallId: String = "",
+        val reasoningContent: String = "",
+        val toolCallsJson: String = ""
+    ) {
+        fun toJsonObject(): JSONObject =
+            JSONObject()
+                .put("role", role)
+                .also { message ->
+                    when {
+                        contentJson.isNotBlank() -> message.put("content", JSONTokener(contentJson).nextValue())
+                        else -> message.put("content", content)
+                    }
+                    if (toolCallId.isNotBlank()) {
+                        message.put("tool_call_id", toolCallId)
+                    }
+                    if (reasoningContent.isNotBlank()) {
+                        message.put("reasoning_content", reasoningContent)
+                    }
+                    if (toolCallsJson.isNotBlank()) {
+                        message.put("tool_calls", JSONTokener(toolCallsJson).nextValue())
+                    }
+                }
+
+        companion object {
+            fun fromJsonObject(message: JSONObject): ConversationMessage {
+                val contentValue = message.opt("content")
+                return ConversationMessage(
+                    role = message.optString("role"),
+                    content = (contentValue as? String).orEmpty(),
+                    contentJson = if (contentValue == null || contentValue == JSONObject.NULL || contentValue is String) {
+                        ""
+                    } else {
+                        contentValue.toString()
+                    },
+                    toolCallId = message.optString("tool_call_id"),
+                    reasoningContent = message.optString("reasoning_content"),
+                    toolCallsJson = message.optJSONArray("tool_calls")?.toString().orEmpty(),
+                )
+            }
+        }
+    }
 
     fun interface ToolExecutor {
         fun execute(toolCall: ToolCall): ToolResult
@@ -1201,7 +1287,8 @@ internal object AgentModelClient {
     sealed interface ModelResponse {
         data class Text(
             val content: String,
-            val reasoningContent: String = ""
+            val reasoningContent: String = "",
+            val transcript: List<ConversationMessage> = emptyList(),
         ) : ModelResponse
     }
 }

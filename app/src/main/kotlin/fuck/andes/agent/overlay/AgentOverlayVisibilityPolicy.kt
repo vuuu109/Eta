@@ -12,7 +12,12 @@ import fuck.andes.agent.runtime.AgentEvent
  */
 internal object AgentOverlayVisibilityPolicy {
     fun shouldRevealFor(event: AgentEvent): Boolean = when (event) {
-        is AgentEvent.ProviderToolCallDelta -> event.name.isForegroundDrivingTool()
+        is AgentEvent.AssistantBlockStart ->
+            event.kind == AgentEvent.AssistantBlockKind.TOOL_CALL &&
+                event.name.isForegroundDrivingTool()
+        is AgentEvent.AssistantBlockEnd ->
+            event.kind == AgentEvent.AssistantBlockKind.TOOL_CALL &&
+                event.name.isForegroundDrivingTool()
         is AgentEvent.AssistantReceived -> event.toolNames.any { it.isForegroundDrivingTool() }
         is AgentEvent.ToolStarted -> event.name.isForegroundDrivingTool()
         is AgentEvent.ToolFinished -> event.name.isForegroundOperationTool()
@@ -21,7 +26,12 @@ internal object AgentOverlayVisibilityPolicy {
     }
 
     fun shouldDismissEntrySurfaceFor(event: AgentEvent): Boolean = when (event) {
-        is AgentEvent.ProviderToolCallDelta -> event.name.isForegroundOperationTool()
+        is AgentEvent.AssistantBlockStart ->
+            event.kind == AgentEvent.AssistantBlockKind.TOOL_CALL &&
+                event.name.isForegroundOperationTool()
+        is AgentEvent.AssistantBlockEnd ->
+            event.kind == AgentEvent.AssistantBlockKind.TOOL_CALL &&
+                event.name.isForegroundOperationTool()
         is AgentEvent.AssistantReceived -> event.toolNames.any { it.isForegroundOperationTool() }
         is AgentEvent.ToolStarted -> event.name.isForegroundOperationTool()
         is AgentEvent.ToolFinished -> event.name.isForegroundOperationTool()
