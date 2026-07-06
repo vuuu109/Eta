@@ -277,6 +277,39 @@ internal class AgentAppState(
         persistConversations()
     }
 
+    fun deleteConversation(conversationId: String) {
+        val wasSelected = selectedConversationId == conversationId
+        conversationsById = conversationsById - conversationId
+        conversationTitles = conversationTitles - conversationId
+        conversationUpdatedAt = conversationUpdatedAt - conversationId
+        if (wasSelected) {
+            val nextId = conversationsById.keys.firstOrNull()
+            if (nextId != null) {
+                selectedConversationId = nextId
+                homeState = conversationsById.getValue(nextId)
+            } else {
+                selectedConversationId = newConversationId()
+                val state = emptyChatState(defaultThinkingEnabled)
+                conversationsById = conversationsById + (selectedConversationId to state)
+                conversationTitles = conversationTitles + (selectedConversationId to "新对话")
+                conversationUpdatedAt = conversationUpdatedAt + (selectedConversationId to System.currentTimeMillis())
+                homeState = state
+            }
+        }
+        conversationPaneState = conversationPaneState.copy(selectedConversationId = selectedConversationId)
+        refreshConversationSummaries()
+        persistConversations()
+    }
+
+    fun renameConversation(conversationId: String, title: String) {
+        val trimmed = title.trim()
+        if (trimmed.isBlank()) return
+        conversationTitles = conversationTitles + (conversationId to trimmed)
+        conversationUpdatedAt = conversationUpdatedAt + (conversationId to System.currentTimeMillis())
+        refreshConversationSummaries()
+        persistConversations()
+    }
+
     fun sendCurrentMessage() {
         val prompt = homeState.input.trim()
         if (prompt.isBlank() || homeState.isStreaming) return

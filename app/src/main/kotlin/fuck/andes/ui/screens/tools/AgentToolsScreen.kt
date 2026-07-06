@@ -6,13 +6,11 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
-import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.runtime.Composable
@@ -24,20 +22,18 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.composables.icons.lucide.R as LucideR
+import fuck.andes.ui.components.MiuixScaffoldPage
 import fuck.andes.ui.model.AgentToolsAction
 import fuck.andes.ui.model.AgentToolsUiState
 import fuck.andes.ui.model.ToolItemUi
 import top.yukonga.miuix.kmp.basic.Card
 import top.yukonga.miuix.kmp.basic.CardDefaults
 import top.yukonga.miuix.kmp.basic.Icon
+import top.yukonga.miuix.kmp.basic.SmallTitle
 import top.yukonga.miuix.kmp.basic.Text
 import top.yukonga.miuix.kmp.theme.MiuixTheme
 
 private object ToolsMetrics {
-    val ScreenBottomPadding = 24.dp
-    val SectionHorizontalPadding = 20.dp
-    val SectionTopPadding = 24.dp
-    val SectionBottomPadding = 12.dp
     val GridHorizontalPadding = 20.dp
     val GridGap = 12.dp
     val CardMinHeight = 136.dp
@@ -54,15 +50,14 @@ fun AgentToolsScreen(
     onAction: (AgentToolsAction) -> Unit,
     modifier: Modifier = Modifier,
 ) {
-    LazyColumn(
-        modifier = modifier
-            .fillMaxSize()
-            .background(MiuixTheme.colorScheme.surface),
-        contentPadding = PaddingValues(bottom = ToolsMetrics.ScreenBottomPadding),
+    MiuixScaffoldPage(
+        title = "工具能力",
+        onBack = { onAction(AgentToolsAction.NavigateBack) },
+        modifier = modifier,
     ) {
         state.groups.forEach { group ->
             item(key = "${group.id}-title") {
-                ToolSectionTitle(text = group.title)
+                SmallTitle(group.title)
             }
             items(
                 items = group.tools.chunked(2),
@@ -72,26 +67,6 @@ fun AgentToolsScreen(
             }
         }
     }
-}
-
-@Composable
-private fun ToolSectionTitle(
-    text: String,
-) {
-    Text(
-        text = text,
-        modifier = Modifier.padding(
-            start = ToolsMetrics.SectionHorizontalPadding,
-            top = ToolsMetrics.SectionTopPadding,
-            end = ToolsMetrics.SectionHorizontalPadding,
-            bottom = ToolsMetrics.SectionBottomPadding,
-        ),
-        color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
-        style = MiuixTheme.textStyles.footnote1,
-        fontWeight = FontWeight.Medium,
-        maxLines = 1,
-        overflow = TextOverflow.Ellipsis,
-    )
 }
 
 @Composable
@@ -172,23 +147,23 @@ private fun colorForTool(toolId: String): Color = when (toolId) {
     "click", "tap_element",
     "tap_area", "long_press",
     "swipe", "scroll" -> Color(0xFFFF7700)
-    
+
     // 文本与剪贴板
     "clipboard", "paste_text",
     "input_text", "replace_text",
     "clear_text", "wait_text",
     "wait_for_text" -> Color(0xFF0066FF)
-    
+
     // 应用与系统
     "search_apps", "open_app",
     "launch_app", "open_uri",
     "press_key", "open_system_panel" -> Color(0xFF00BD13)
-    
+
     // 终端与文件
     "terminal", "terminal_job",
     "run_command", "read_file",
     "write_file", "list_directory" -> Color(0xFFFFB200)
-    
+
     else -> Color(0xFF0066FF)
 }
 

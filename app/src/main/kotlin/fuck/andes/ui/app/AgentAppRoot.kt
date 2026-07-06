@@ -25,6 +25,22 @@ import fuck.andes.data.repository.RuntimeConfigRepository
 import androidx.navigation3.runtime.entryProvider
 import androidx.navigation3.runtime.rememberDecoratedNavEntries
 import androidx.navigation3.ui.NavDisplay
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.width
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.unit.dp
+import fuck.andes.ui.model.ConversationSummaryUi
+import top.yukonga.miuix.kmp.basic.Button
+import top.yukonga.miuix.kmp.basic.ButtonDefaults
+import top.yukonga.miuix.kmp.basic.Text
+import top.yukonga.miuix.kmp.basic.TextButton
+import top.yukonga.miuix.kmp.basic.TextField
+import top.yukonga.miuix.kmp.theme.MiuixTheme
+import top.yukonga.miuix.kmp.window.WindowDialog
 import fuck.andes.ui.SettingsScreen
 import fuck.andes.ui.pages.providers.ModelProviderDetailScreen
 import fuck.andes.ui.pages.providers.ModelProviderListScreen
@@ -60,6 +76,8 @@ fun AgentAppRoot() {
     }
 
     var conversationPaneOpen by remember { mutableStateOf(false) }
+    var conversationRenameTarget by remember { mutableStateOf<ConversationSummaryUi?>(null) }
+    var conversationDeleteTarget by remember { mutableStateOf<ConversationSummaryUi?>(null) }
     val focusManager = LocalFocusManager.current
 
     LaunchedEffect(Unit) {
@@ -107,6 +125,12 @@ fun AgentAppRoot() {
             onSearchConversations = { query -> agentState.updateSearchQuery(query) },
             onNewConversation = { createConversation() },
             onSelectConversation = { conversationId -> selectConversation(conversationId) },
+            onConversationRename = { conversation ->
+                conversationRenameTarget = conversation
+            },
+            onConversationDelete = { conversation ->
+                conversationDeleteTarget = conversation
+            },
             onOpenTools = { pushRoute(AppRoute.Tools) },
             onOpenSkills = { pushRoute(AppRoute.Skills) },
             onOpenPermissions = { pushRoute(AppRoute.Permissions) },
@@ -167,129 +191,124 @@ fun AgentAppRoot() {
                 }
             }
             entry<AppRoute.Tools> {
-                RoutedShell(route = AppRoute.Tools) {
-                    AgentToolsScreen(
-                        state = agentState.toolsState,
-                        onAction = { action ->
-                            when (action) {
-                                AgentToolsAction.NavigateBack -> popRoute()
-                            }
-                        },
-                    )
-                }
+                AgentToolsScreen(
+                    state = agentState.toolsState,
+                    onAction = { action ->
+                        when (action) {
+                            AgentToolsAction.NavigateBack -> popRoute()
+                        }
+                    },
+                )
             }
             entry<AppRoute.Skills> {
-                RoutedShell(route = AppRoute.Skills) {
-                    LaunchedEffect(Unit) {
-                        agentState.refreshSkills()
-                    }
-                    AgentSkillsScreen(
-                        state = agentState.skillsState,
-                        onAction = { action ->
-                            when (action) {
-                                AgentSkillsAction.NavigateBack -> popRoute()
-                                is AgentSkillsAction.ToggleSkill -> agentState.toggleSkill(action.skillId, action.enabled)
-                                is AgentSkillsAction.DeleteSkill -> agentState.deleteSkill(action.skillId)
-                                is AgentSkillsAction.ReinstallBuiltin -> agentState.reinstallBuiltin(action.skillId)
-                            }
-                        },
-                    )
+                LaunchedEffect(Unit) {
+                    agentState.refreshSkills()
                 }
+                AgentSkillsScreen(
+                    state = agentState.skillsState,
+                    onAction = { action ->
+                        when (action) {
+                            AgentSkillsAction.NavigateBack -> popRoute()
+                            is AgentSkillsAction.ToggleSkill -> agentState.toggleSkill(action.skillId, action.enabled)
+                            is AgentSkillsAction.DeleteSkill -> agentState.deleteSkill(action.skillId)
+                            is AgentSkillsAction.ReinstallBuiltin -> agentState.reinstallBuiltin(action.skillId)
+                        }
+                    },
+                )
             }
             entry<AppRoute.Permissions> {
-                RoutedShell(route = AppRoute.Permissions) {
-                    LaunchedEffect(Unit) {
-                        agentState.refreshPermissionHealth()
-                    }
-                    PermissionHealthScreen(
-                        state = agentState.permissionHealthState,
-                        onAction = { action ->
-                            when (action) {
-                                PermissionHealthAction.NavigateBack -> popRoute()
-                                is PermissionHealthAction.OpenItemAction -> {
-                                    when (action.itemId) {
-                                        "accessibility" -> {
-                                            runCatching {
-                                                context.startActivity(Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS))
-                                            }
+                LaunchedEffect(Unit) {
+                    agentState.refreshPermissionHealth()
+                }
+                PermissionHealthScreen(
+                    state = agentState.permissionHealthState,
+                    onAction = { action ->
+                        when (action) {
+                            PermissionHealthAction.NavigateBack -> popRoute()
+                            is PermissionHealthAction.OpenItemAction -> {
+                                when (action.itemId) {
+                                    "accessibility" -> {
+                                        runCatching {
+                                            context.startActivity(Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS))
                                         }
-                                        "overlay" -> {
-                                            runCatching {
-                                                context.startActivity(
-                                                    Intent(
-                                                        Settings.ACTION_MANAGE_OVERLAY_PERMISSION,
-                                                        Uri.parse("package:${context.packageName}")
-                                                    )
+                                    }
+                                    "overlay" -> {
+                                        runCatching {
+                                            context.startActivity(
+                                                Intent(
+                                                    Settings.ACTION_MANAGE_OVERLAY_PERMISSION,
+                                                    Uri.parse("package:${context.packageName}")
                                                 )
-                                            }
+                                            )
                                         }
-                                        "background" -> {
-                                            runCatching {
-                                                context.startActivity(Intent(Settings.ACTION_IGNORE_BATTERY_OPTIMIZATION_SETTINGS))
-                                            }
+                                    }
+                                    "background" -> {
+                                        runCatching {
+                                            context.startActivity(Intent(Settings.ACTION_IGNORE_BATTERY_OPTIMIZATION_SETTINGS))
                                         }
-                                        "app_list" -> {
-                                            runCatching {
-                                                context.startActivity(
-                                                    Intent(
-                                                        Settings.ACTION_APPLICATION_DETAILS_SETTINGS,
-                                                        Uri.parse("package:${context.packageName}")
-                                                    )
+                                    }
+                                    "app_list" -> {
+                                        runCatching {
+                                            context.startActivity(
+                                                Intent(
+                                                    Settings.ACTION_APPLICATION_DETAILS_SETTINGS,
+                                                    Uri.parse("package:${context.packageName}")
                                                 )
-                                            }
+                                            )
                                         }
-                                        "root" -> {
-                                            coroutineScope.launch {
-                                                try {
-                                                    val process = Runtime.getRuntime().exec(arrayOf("su", "-c", "id"))
-                                                    process.waitFor()
-                                                } catch (e: Exception) {
-                                                    // no-op
-                                                }
-                                                agentState.refreshPermissionHealth()
+                                    }
+                                    "root" -> {
+                                        coroutineScope.launch {
+                                            try {
+                                                val process = Runtime.getRuntime().exec(arrayOf("su", "-c", "id"))
+                                                process.waitFor()
+                                            } catch (e: Exception) {
+                                                // no-op
                                             }
+                                            agentState.refreshPermissionHealth()
                                         }
                                     }
                                 }
                             }
-                        },
-                    )
-                }
+                        }
+                    },
+                )
             }
             entry<AppRoute.SystemEnhance> {
-                RoutedShell(route = AppRoute.SystemEnhance) {
-                    SystemEnhanceScreen(
-                        state = agentState.systemEnhanceState,
-                        onAction = { action ->
-                            when (action) {
-                                AgentSystemEnhanceAction.NavigateBack -> popRoute()
-                                is AgentSystemEnhanceAction.ToggleItem -> Unit
-                            }
-                        },
-                    )
-                }
+                SystemEnhanceScreen(
+                    state = agentState.systemEnhanceState,
+                    onAction = { action ->
+                        when (action) {
+                            AgentSystemEnhanceAction.NavigateBack -> popRoute()
+                            is AgentSystemEnhanceAction.ToggleItem -> Unit
+                        }
+                    },
+                )
             }
             entry<AppRoute.Settings> {
                 SettingsScreen(
                     context = context,
-                    onNavigate = { route -> pushRoute(route) }
+                    onNavigate = { route -> pushRoute(route) },
+                    onBack = ::popRoute
                 )
             }
             entry<AppRoute.ModelProviders> {
-                RoutedShell(route = AppRoute.ModelProviders) {
-                    ModelProviderListScreen(
-                        onNavigate = { route -> pushRoute(route) },
-                        onBack = ::popRoute
-                    )
-                }
+                ModelProviderListScreen(
+                    onNavigate = { route -> pushRoute(route) },
+                    onBack = ::popRoute
+                )
             }
             entry<AppRoute.ModelProviderDetail> { route ->
-                RoutedShell(route = route) {
-                    ModelProviderDetailScreen(
-                        providerId = route.providerId,
-                        onBack = ::popRoute
-                    )
-                }
+                ModelProviderDetailScreen(
+                    providerId = route.providerId,
+                    onBack = ::popRoute
+                )
+            }
+            entry<AppRoute.ModelProviderNew> { route ->
+                ModelProviderDetailScreen(
+                    newType = route.type,
+                    onBack = ::popRoute
+                )
             }
         }
     }
@@ -302,4 +321,70 @@ fun AgentAppRoot() {
         entries = entries,
         onBack = { popRoute() },
     )
+
+    conversationRenameTarget?.let { conversation ->
+        var renameInput by remember(conversation.id) { mutableStateOf(conversation.title) }
+        WindowDialog(
+            show = true,
+            title = "重命名对话",
+            onDismissRequest = { conversationRenameTarget = null },
+        ) {
+            Column {
+                TextField(
+                    value = renameInput,
+                    onValueChange = { renameInput = it },
+                    singleLine = true,
+                    modifier = Modifier.fillMaxWidth(),
+                )
+                Row(
+                    modifier = Modifier.fillMaxWidth().padding(top = 16.dp),
+                    horizontalArrangement = Arrangement.End,
+                ) {
+                    TextButton(text = "取消", onClick = { conversationRenameTarget = null })
+                    Spacer(modifier = Modifier.width(8.dp))
+                    TextButton(
+                        text = "确定",
+                        colors = ButtonDefaults.textButtonColorsPrimary(),
+                        onClick = {
+                            agentState.renameConversation(conversation.id, renameInput)
+                            conversationRenameTarget = null
+                        },
+                    )
+                }
+            }
+        }
+    }
+
+    conversationDeleteTarget?.let { conversation ->
+        WindowDialog(
+            show = true,
+            title = "删除后，该对话将不可恢复",
+            onDismissRequest = { conversationDeleteTarget = null },
+        ) {
+            Column(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalAlignment = Alignment.CenterHorizontally,
+                verticalArrangement = Arrangement.spacedBy(8.dp),
+            ) {
+                Button(
+                    onClick = {
+                        agentState.deleteConversation(conversation.id)
+                        conversationDeleteTarget = null
+                    },
+                    modifier = Modifier.fillMaxWidth(),
+                    colors = ButtonDefaults.buttonColorsPrimary(
+                        color = MiuixTheme.colorScheme.error,
+                        contentColor = MiuixTheme.colorScheme.onError,
+                    ),
+                ) {
+                    Text("删除该对话")
+                }
+                TextButton(
+                    text = "取消",
+                    modifier = Modifier.fillMaxWidth(),
+                    onClick = { conversationDeleteTarget = null },
+                )
+            }
+        }
+    }
 }

@@ -12,4 +12,7 @@ sealed interface AppRoute : NavKey {
     data object Settings : AppRoute
     data object ModelProviders : AppRoute
     data class ModelProviderDetail(val providerId: String) : AppRoute
+    data class ModelProviderNew(val type: NewProviderType) : AppRoute
 }
+
+enum class NewProviderType { OpenAiCompatible, Anthropic }

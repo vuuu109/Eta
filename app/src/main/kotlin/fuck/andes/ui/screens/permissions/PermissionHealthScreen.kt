@@ -2,19 +2,17 @@ package fuck.andes.ui.screens.permissions
 
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.unit.dp
 import com.composables.icons.lucide.R as LucideR
 import fuck.andes.ui.components.ArrowItem
+import fuck.andes.ui.components.MiuixScaffoldPage
 import fuck.andes.ui.components.PrefDivider
 import fuck.andes.ui.components.color
 import fuck.andes.ui.components.label
@@ -35,9 +33,10 @@ fun PermissionHealthScreen(
     onAction: (PermissionHealthAction) -> Unit,
     modifier: Modifier = Modifier,
 ) {
-    LazyColumn(
+    MiuixScaffoldPage(
+        title = "权限健康",
+        onBack = { onAction(PermissionHealthAction.NavigateBack) },
         modifier = modifier,
-        contentPadding = PaddingValues(bottom = 12.dp),
     ) {
         item(key = "title") {
             SmallTitle("权限与状态")

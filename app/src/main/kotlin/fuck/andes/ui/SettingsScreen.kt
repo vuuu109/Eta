@@ -38,6 +38,7 @@ import fuck.andes.config.Prefs
 import fuck.andes.data.repository.ProviderRepository
 import fuck.andes.data.repository.RuntimeConfigRepository
 import fuck.andes.systemizer.GoogleAppSystemizerInstaller
+import fuck.andes.ui.components.MiuixBackButton
 import fuck.andes.ui.navigation.AppRoute
 import fuck.andes.systemizer.RootManager
 import fuck.andes.systemizer.SystemizerInstallResult
@@ -85,6 +86,7 @@ private val ColorOSOrange = Color(0xFFFF7700)
 internal fun SettingsScreen(
     context: Context,
     onNavigate: (AppRoute) -> Unit,
+    onBack: () -> Unit,
 ) {
     val scrollBehavior = MiuixScrollBehavior()
     val coroutineScope = rememberCoroutineScope()
@@ -147,6 +149,7 @@ internal fun SettingsScreen(
             TopAppBar(
                 title = "FuckAndes",
                 largeTitle = "FuckAndes",
+                navigationIcon = { MiuixBackButton(onClick = onBack) },
                 scrollBehavior = scrollBehavior,
             )
         },

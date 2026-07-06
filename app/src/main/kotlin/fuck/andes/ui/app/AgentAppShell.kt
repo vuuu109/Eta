@@ -15,6 +15,7 @@ import com.composables.icons.lucide.R as LucideR
 import fuck.andes.ui.components.ConversationSidePaneScaffold
 import fuck.andes.ui.navigation.AppRoute
 import fuck.andes.ui.model.ConversationPaneUiState
+import fuck.andes.ui.model.ConversationSummaryUi
 import top.yukonga.miuix.kmp.basic.Icon
 import top.yukonga.miuix.kmp.basic.IconButton
 import top.yukonga.miuix.kmp.basic.Scaffold
@@ -40,6 +41,8 @@ fun AgentAppShell(
     onSearchConversations: (String) -> Unit,
     onNewConversation: () -> Unit,
     onSelectConversation: (String) -> Unit,
+    onConversationRename: (ConversationSummaryUi) -> Unit,
+    onConversationDelete: (ConversationSummaryUi) -> Unit,
     onOpenTools: () -> Unit,
     onOpenSkills: () -> Unit,
     onOpenPermissions: () -> Unit,
@@ -77,6 +80,8 @@ fun AgentAppShell(
                 onDismiss = onDismissConversationPane,
                 onSearchChange = onSearchConversations,
                 onConversationSelected = onSelectConversation,
+                onConversationRename = onConversationRename,
+                onConversationDelete = onConversationDelete,
                 onOpenSettings = onOpenSettings,
                 onOpenTools = onOpenTools,
                 onOpenSkills = onOpenSkills,
@@ -142,5 +147,6 @@ private fun titleForRoute(route: AppRoute?): String = when (route) {
     is AppRoute.Settings -> "设置"
     is AppRoute.ModelProviders -> "模型提供商"
     is AppRoute.ModelProviderDetail -> route.providerId.let { "Provider 详情" }
+    is AppRoute.ModelProviderNew -> "新建提供商"
     null -> "FuckAndes"
 }

@@ -1,19 +1,19 @@
 package fuck.andes.ui.screens.enhance
 
-import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
-import fuck.andes.ui.components.SectionHeader
+import fuck.andes.ui.components.MiuixScaffoldPage
 import fuck.andes.ui.model.AgentSystemEnhanceAction
 import fuck.andes.ui.model.AgentSystemEnhanceUiState
 import fuck.andes.ui.model.SystemEnhanceItemUi
 import fuck.andes.ui.model.SystemEnhanceStatusUi
 import top.yukonga.miuix.kmp.basic.BasicComponent
 import top.yukonga.miuix.kmp.basic.Card
+import top.yukonga.miuix.kmp.basic.SmallTitle
 import top.yukonga.miuix.kmp.basic.Text
 import top.yukonga.miuix.kmp.theme.MiuixTheme
 
@@ -23,20 +23,21 @@ fun SystemEnhanceScreen(
     onAction: (AgentSystemEnhanceAction) -> Unit,
     modifier: Modifier = Modifier,
 ) {
-    LazyColumn(
+    MiuixScaffoldPage(
+        title = "系统增强",
+        onBack = { onAction(AgentSystemEnhanceAction.NavigateBack) },
         modifier = modifier,
-        contentPadding = PaddingValues(bottom = 12.dp),
     ) {
         items(
             items = state.sections,
             key = { it.id },
         ) { section ->
-            Card(
-                modifier = Modifier
-                    .fillParentMaxWidth()
-                    .padding(horizontal = 12.dp, vertical = 6.dp),
-            ) {
-                SectionHeader(
+                Card(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 12.dp, vertical = 6.dp),
+                ) {
+                SmallTitle(
                     text = section.title,
                     modifier = Modifier.padding(horizontal = 16.dp, vertical = 12.dp),
                 )

@@ -123,6 +123,13 @@ internal fun ProviderSetting.withSortOrder(sortOrder: Int): ProviderSetting =
         is CustomProviderSetting -> copy(sortOrder = sortOrder)
     }
 
+internal fun ProviderSetting.withId(id: String): ProviderSetting =
+    when (this) {
+        is OpenAiCompatibleProviderSetting -> copy(id = id)
+        is AnthropicProviderSetting -> copy(id = id)
+        is CustomProviderSetting -> copy(id = id)
+    }
+
 internal fun ProviderSetting.withApiKey(apiKey: String): ProviderSetting =
     when (this) {
         is OpenAiCompatibleProviderSetting -> copy(apiKey = apiKey)

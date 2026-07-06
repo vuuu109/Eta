@@ -5,7 +5,9 @@ import androidx.compose.animation.core.Spring
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.spring
 import androidx.compose.foundation.background
+import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.gestures.detectHorizontalDragGestures
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -38,9 +40,11 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.input.pointer.PointerInputChange
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
@@ -51,13 +55,20 @@ import com.composables.icons.lucide.R as LucideR
 import fuck.andes.ui.model.ConversationPaneUiState
 import fuck.andes.ui.model.ConversationSummaryUi
 import kotlin.math.roundToInt
+import top.yukonga.miuix.kmp.basic.DropdownDefaults
+import top.yukonga.miuix.kmp.basic.DropdownImpl
+import top.yukonga.miuix.kmp.basic.DropdownItem
 import top.yukonga.miuix.kmp.basic.Icon
 import top.yukonga.miuix.kmp.basic.IconButton
 import top.yukonga.miuix.kmp.basic.InputField
+import top.yukonga.miuix.kmp.basic.ListPopupColumn
+import top.yukonga.miuix.kmp.basic.ListPopupDefaults
+import top.yukonga.miuix.kmp.basic.PopupPositionProvider
 import top.yukonga.miuix.kmp.basic.SearchBar
 import top.yukonga.miuix.kmp.basic.Surface
 import top.yukonga.miuix.kmp.basic.Text
 import top.yukonga.miuix.kmp.theme.MiuixTheme
+import top.yukonga.miuix.kmp.window.WindowListPopup
 
 private object DrawerMetrics {
     val PaneMaxWidth = 340.dp
@@ -93,6 +104,8 @@ fun ConversationSidePaneScaffold(
     onDismiss: () -> Unit,
     onSearchChange: (String) -> Unit,
     onConversationSelected: (String) -> Unit,
+    onConversationRename: (ConversationSummaryUi) -> Unit,
+    onConversationDelete: (ConversationSummaryUi) -> Unit,
     onOpenSettings: () -> Unit,
     onOpenTools: () -> Unit,
     onOpenSkills: () -> Unit,
@@ -132,6 +145,8 @@ fun ConversationSidePaneScaffold(
             width = paneWidth,
             onSearchChange = onSearchChange,
             onConversationSelected = onConversationSelected,
+            onConversationRename = onConversationRename,
+            onConversationDelete = onConversationDelete,
             onOpenSettings = onOpenSettings,
             onOpenTools = onOpenTools,
             onOpenSkills = onOpenSkills,
@@ -146,7 +161,13 @@ fun ConversationSidePaneScaffold(
                 .pointerInput(visible, paneWidthPx) {
                     detectHorizontalDragGestures(
                         onDragStart = { offset ->
-                            acceptsDrag = visible || offset.x <= edgeSwipeWidthPx
+                            // 打开时仅在主内容区（右侧）接受拖拽关闭，避免拦截会话列表的长按；
+                            // 关闭时仅从左缘拖拽打开。
+                            acceptsDrag = if (visible) {
+                                offset.x >= paneWidthPx - edgeSwipeWidthPx
+                            } else {
+                                offset.x <= edgeSwipeWidthPx
+                            }
                             if (acceptsDrag) {
                                 dragging = true
                                 dragOffsetPx = animatedOffsetPx
@@ -200,6 +221,8 @@ private fun ConversationPanePanel(
     width: androidx.compose.ui.unit.Dp,
     onSearchChange: (String) -> Unit,
     onConversationSelected: (String) -> Unit,
+    onConversationRename: (ConversationSummaryUi) -> Unit,
+    onConversationDelete: (ConversationSummaryUi) -> Unit,
     onOpenSettings: () -> Unit,
     onOpenTools: () -> Unit,
     onOpenSkills: () -> Unit,
@@ -260,6 +283,8 @@ private fun ConversationPanePanel(
                                 conversation = conversation,
                                 selected = conversation.id == state.selectedConversationId,
                                 onClick = { onConversationSelected(conversation.id) },
+                                onRename = { onConversationRename(conversation) },
+                                onDelete = { onConversationDelete(conversation) },
                             )
                         }
                     }
@@ -341,52 +366,127 @@ private fun ConversationSectionHeader(
     }
 }
 
+@OptIn(ExperimentalFoundationApi::class)
 @Composable
 private fun ConversationTextRow(
     conversation: ConversationSummaryUi,
     selected: Boolean,
     onClick: () -> Unit,
+    onRename: () -> Unit,
+    onDelete: () -> Unit,
 ) {
-    Row(
-        modifier = Modifier
-            .fillMaxWidth()
-            .heightIn(min = DrawerMetrics.RowMinHeight)
-            .clip(RoundedCornerShape(DrawerMetrics.RowCornerRadius))
-            .background(
-                if (selected) {
-                    MiuixTheme.colorScheme.surfaceContainerHigh
+    var showActionMenu by remember { mutableStateOf(false) }
+    val hapticFeedback = LocalHapticFeedback.current
+
+    Box(modifier = Modifier.fillMaxWidth()) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .heightIn(min = DrawerMetrics.RowMinHeight)
+                .clip(RoundedCornerShape(DrawerMetrics.RowCornerRadius))
+                .background(
+                    if (selected) {
+                        MiuixTheme.colorScheme.surfaceContainerHigh
+                    } else {
+                        Color.Transparent
+                    },
+                )
+                .combinedClickable(
+                    onClick = onClick,
+                    onLongClick = {
+                        hapticFeedback.performHapticFeedback(HapticFeedbackType.LongPress)
+                        showActionMenu = true
+                    },
+                )
+                .padding(
+                    horizontal = DrawerMetrics.RowHorizontalPadding,
+                    vertical = DrawerMetrics.RowVerticalPadding,
+                ),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Text(
+                text = conversation.title.ifBlank { conversation.preview },
+                color = if (selected) {
+                    MiuixTheme.colorScheme.primary
                 } else {
-                    Color.Transparent
+                    MiuixTheme.colorScheme.onSurface
                 },
+                style = MiuixTheme.textStyles.body1,
+                fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Medium,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+                modifier = Modifier.weight(1f),
             )
-            .clickable(onClick = onClick)
-            .padding(
-                horizontal = DrawerMetrics.RowHorizontalPadding,
-                vertical = DrawerMetrics.RowVerticalPadding,
-            ),
-        verticalAlignment = Alignment.CenterVertically,
-    ) {
-        Text(
-            text = conversation.title.ifBlank { conversation.preview },
-            color = if (selected) {
-                MiuixTheme.colorScheme.primary
-            } else {
-                MiuixTheme.colorScheme.onSurface
-            },
-            style = MiuixTheme.textStyles.body1,
-            fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Medium,
-            maxLines = 1,
-            overflow = TextOverflow.Ellipsis,
-            modifier = Modifier.weight(1f),
-        )
-        if (conversation.isActiveRun) {
-            Box(
-                modifier = Modifier
-                    .padding(start = DrawerMetrics.ActiveDotGap)
-                    .size(DrawerMetrics.ActiveDotSize)
-                    .clip(CircleShape)
-                    .background(MiuixTheme.colorScheme.primary),
+            if (conversation.isActiveRun) {
+                Box(
+                    modifier = Modifier
+                        .padding(start = DrawerMetrics.ActiveDotGap)
+                        .size(DrawerMetrics.ActiveDotSize)
+                        .clip(CircleShape)
+                        .background(MiuixTheme.colorScheme.primary),
+                )
+            }
+        }
+
+        WindowListPopup(
+            show = showActionMenu,
+            popupPositionProvider = ListPopupDefaults.ContextMenuPositionProvider,
+            alignment = PopupPositionProvider.Align.BottomEnd,
+            onDismissRequest = { showActionMenu = false },
+        ) {
+            val renameItem = remember {
+                DropdownItem(
+                    text = "重命名",
+                    icon = { modifier ->
+                        Icon(
+                            painter = painterResource(LucideR.drawable.lucide_ic_pencil),
+                            contentDescription = null,
+                            modifier = modifier.size(DrawerMetrics.ActionIconSize),
+                        )
+                    },
+                )
+            }
+            val deleteItem = remember {
+                DropdownItem(
+                    text = "删除",
+                    icon = { modifier ->
+                        Icon(
+                            painter = painterResource(LucideR.drawable.lucide_ic_trash_2),
+                            contentDescription = null,
+                            modifier = modifier.size(DrawerMetrics.ActionIconSize),
+                            tint = MiuixTheme.colorScheme.error,
+                        )
+                    },
+                )
+            }
+            val deleteColors = DropdownDefaults.dropdownColors(
+                contentColor = MiuixTheme.colorScheme.error,
+                selectedContentColor = MiuixTheme.colorScheme.error,
+                selectedIndicatorColor = MiuixTheme.colorScheme.error,
             )
+            ListPopupColumn {
+                DropdownImpl(
+                    item = renameItem,
+                    optionSize = 2,
+                    isSelected = false,
+                    index = 0,
+                    onSelectedIndexChange = {
+                        showActionMenu = false
+                        onRename()
+                    },
+                )
+                DropdownImpl(
+                    item = deleteItem,
+                    optionSize = 2,
+                    isSelected = false,
+                    index = 1,
+                    dropdownColors = deleteColors,
+                    onSelectedIndexChange = {
+                        showActionMenu = false
+                        onDelete()
+                    },
+                )
+            }
         }
     }
 }
