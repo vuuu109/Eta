@@ -9,6 +9,7 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import fuck.andes.FuckAndesApp
 import fuck.andes.agent.accessibility.AgentAccessibilityService
+import fuck.andes.agent.device.DeviceLocationProvider
 import fuck.andes.agent.media.AgentImageCodec
 import fuck.andes.agent.model.AgentModelClient
 import fuck.andes.agent.runtime.AgentEvent
@@ -963,6 +964,7 @@ private fun buildToolsState(): AgentToolsUiState =
                 title = "应用与系统",
                 tools = listOf(
                     ToolItemUi("search_apps", "搜索应用", "按名称或包名查询已安装应用"),
+                    ToolItemUi("get_current_context", "时间与位置", "读取系统时间与最近位置"),
                     ToolItemUi("launch_app", "打开 App", "启动指定包名或应用名"),
                     ToolItemUi("open_uri", "用应用打开", "把链接或 deep link 显式交给外部应用"),
                     ToolItemUi("press_key", "按键", "返回、主页、最近任务等系统按键"),
@@ -989,6 +991,7 @@ private fun buildPermissionHealthState(context: Context): PermissionHealthUiStat
     val appListEnabled = hasAppListAccess(context)
     val accessibilityEnabled = isAgentAccessibilityEnabled(context) || AgentAccessibilityService.isAvailable()
     val rootEnabled = isRootAvailable()
+    val locationAccess = DeviceLocationProvider.accessState(context)
 
     return PermissionHealthUiState(
         items = listOf(
@@ -1012,6 +1015,28 @@ private fun buildPermissionHealthState(context: Context): PermissionHealthUiStat
                 summary = "",
                 status = if (appListEnabled) PermissionStatusUi.Available else PermissionStatusUi.Missing,
                 primaryActionLabel = if (appListEnabled) null else "去开启",
+            ),
+            PermissionHealthItemUi(
+                id = "location",
+                title = "位置权限",
+                summary = when (locationAccess) {
+                    DeviceLocationProvider.AccessState.DENIED -> "用于按需理解手机所在位置"
+                    DeviceLocationProvider.AccessState.FOREGROUND_ONLY -> "小布入口需要设为“始终允许”"
+                    DeviceLocationProvider.AccessState.DISABLED -> "系统定位服务已关闭"
+                    DeviceLocationProvider.AccessState.AVAILABLE -> "仅在 Agent 调用工具时读取"
+                },
+                status = when (locationAccess) {
+                    DeviceLocationProvider.AccessState.DENIED -> PermissionStatusUi.Missing
+                    DeviceLocationProvider.AccessState.FOREGROUND_ONLY -> PermissionStatusUi.Warning
+                    DeviceLocationProvider.AccessState.DISABLED -> PermissionStatusUi.Disabled
+                    DeviceLocationProvider.AccessState.AVAILABLE -> PermissionStatusUi.Available
+                },
+                primaryActionLabel = when (locationAccess) {
+                    DeviceLocationProvider.AccessState.DENIED -> "去授权"
+                    DeviceLocationProvider.AccessState.FOREGROUND_ONLY -> "去设置"
+                    DeviceLocationProvider.AccessState.DISABLED -> "去开启"
+                    DeviceLocationProvider.AccessState.AVAILABLE -> null
+                },
             ),
             PermissionHealthItemUi(
                 id = "accessibility",

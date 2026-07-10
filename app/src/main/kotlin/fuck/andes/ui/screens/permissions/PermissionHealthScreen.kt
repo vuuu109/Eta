@@ -73,6 +73,7 @@ private fun PermissionItemRow(
         "xposed" -> LucideR.drawable.lucide_ic_git_branch
         "background" -> LucideR.drawable.lucide_ic_history
         "app_list" -> LucideR.drawable.lucide_ic_layout_grid
+        "location" -> LucideR.drawable.lucide_ic_map_pin
         else -> LucideR.drawable.lucide_ic_shield
     }
 

@@ -48,6 +48,7 @@ internal class AgentLocalTools(
         runCatching {
             val args = JSONObject(toolCall.argumentsJson.ifBlank { "{}" })
             when (toolCall.name) {
+                "get_current_context" -> textResult(DeviceContextTool.current(context))
                 "search_apps" -> textResult(searchApps(args))
                 "launch_app" -> textResult(launchApp(args))
                 "open_uri" -> textResult(openUri(args))

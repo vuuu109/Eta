@@ -1,14 +1,18 @@
 package fuck.andes.ui.app
 
+import android.Manifest
 import android.app.Activity
 import android.content.Intent
 import android.net.Uri
 import android.provider.Settings
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import kotlinx.coroutines.launch
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateListOf
@@ -19,8 +23,12 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalFocusManager
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
+import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.navigation3.runtime.NavKey
 import fuck.andes.FuckAndesApp
+import fuck.andes.agent.device.DeviceLocationProvider
 import fuck.andes.data.repository.RuntimeConfigRepository
 import androidx.navigation3.runtime.entryProvider
 import androidx.navigation3.runtime.rememberDecoratedNavEntries
@@ -74,6 +82,21 @@ fun AgentAppRoot() {
             context = context.applicationContext,
             scope = coroutineScope,
         )
+    }
+    val locationPermissionLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.RequestMultiplePermissions()
+    ) {
+        agentState.refreshPermissionHealth()
+    }
+    val lifecycleOwner = LocalLifecycleOwner.current
+    DisposableEffect(lifecycleOwner) {
+        val observer = LifecycleEventObserver { _, event ->
+            if (event == Lifecycle.Event.ON_RESUME) {
+                agentState.refreshPermissionHealth()
+            }
+        }
+        lifecycleOwner.lifecycle.addObserver(observer)
+        onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
     }
 
     var conversationPaneOpen by remember { mutableStateOf(false) }
@@ -265,6 +288,38 @@ fun AgentAppRoot() {
                                                     Uri.parse("package:${context.packageName}")
                                                 )
                                             )
+                                        }
+                                    }
+                                    "location" -> {
+                                        when (DeviceLocationProvider.accessState(context)) {
+                                            DeviceLocationProvider.AccessState.DENIED -> {
+                                                locationPermissionLauncher.launch(
+                                                    arrayOf(
+                                                        Manifest.permission.ACCESS_COARSE_LOCATION,
+                                                        Manifest.permission.ACCESS_FINE_LOCATION,
+                                                    )
+                                                )
+                                            }
+                                            DeviceLocationProvider.AccessState.FOREGROUND_ONLY -> {
+                                                runCatching {
+                                                    context.startActivity(
+                                                        Intent(
+                                                            Settings.ACTION_APPLICATION_DETAILS_SETTINGS,
+                                                            Uri.parse("package:${context.packageName}")
+                                                        )
+                                                    )
+                                                }
+                                            }
+                                            DeviceLocationProvider.AccessState.DISABLED -> {
+                                                runCatching {
+                                                    context.startActivity(
+                                                        Intent(Settings.ACTION_LOCATION_SOURCE_SETTINGS)
+                                                    )
+                                                }
+                                            }
+                                            DeviceLocationProvider.AccessState.AVAILABLE -> {
+                                                agentState.refreshPermissionHealth()
+                                            }
                                         }
                                     }
                                     "root" -> {

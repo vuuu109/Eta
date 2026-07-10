@@ -204,7 +204,7 @@ private fun colorForTool(toolId: String): Color = when (toolId) {
 
     // 应用与系统
     "search_apps", "open_app",
-    "launch_app", "open_uri",
+    "get_current_context", "launch_app", "open_uri",
     "press_key", "open_system_panel" -> Color(0xFF00BD13)
 
     // Agent 浏览器
@@ -232,6 +232,7 @@ private fun iconForTool(toolId: String): Int = when (toolId) {
     "clear_text" -> LucideR.drawable.lucide_ic_eraser
     "wait_text", "wait_for_text" -> LucideR.drawable.lucide_ic_clock
     "search_apps" -> LucideR.drawable.lucide_ic_package_search
+    "get_current_context" -> LucideR.drawable.lucide_ic_map_pin
     "open_app", "launch_app" -> LucideR.drawable.lucide_ic_app_window
     "open_uri" -> LucideR.drawable.lucide_ic_external_link
     "browser_use" -> LucideR.drawable.lucide_ic_globe

@@ -232,7 +232,7 @@ internal object AgentModelClient {
                 .put("role", "system")
                 .put(
                     "content",
-                    "你可以操作当前 Android 手机。需要看屏幕时先调用 observe_screen；点击可见控件优先用 tap_element/tap_area，输入精确文本优先用 replace_text 或 paste_text，长文本/中文/特殊字符优先用 paste_text；点击或打开应用后优先用 wait_for_text/wait_for_package 验证状态，少用盲等。若 observe_screen 返回 accessibility.available=false，节点编辑/节点滚动类工具可能不可用，此时使用坐标点击、swipe、scroll、input_text 的 Root Shell 回退。"
+                    "你可以操作当前 Android 手机。涉及当前时间、相对时间或所在位置时先调用 get_current_context。需要看屏幕时先调用 observe_screen；点击可见控件优先用 tap_element/tap_area，输入精确文本优先用 replace_text 或 paste_text，长文本/中文/特殊字符优先用 paste_text；点击或打开应用后优先用 wait_for_text/wait_for_package 验证状态，少用盲等。若 observe_screen 返回 accessibility.available=false，节点编辑/节点滚动类工具可能不可用，此时使用坐标点击、swipe、scroll、input_text 的 Root Shell 回退。"
                 )
         )
         if (config.terminalTools) {
@@ -332,6 +332,15 @@ internal object AgentModelClient {
         browserTools: Boolean,
     ): JSONArray =
         JSONArray()
+            .put(
+                functionTool(
+                    name = "get_current_context",
+                    description = "获取手机当前时间、时区和最近系统位置；涉及现在、今天、明天或所在位置时调用。",
+                    parameters = JSONObject()
+                        .put("type", "object")
+                        .put("properties", JSONObject())
+                )
+            )
             .put(
                 functionTool(
                     name = "search_apps",

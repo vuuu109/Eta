@@ -803,6 +803,7 @@ private fun String.toToolIcon(): Int = when (this) {
     "clear_text" -> LucideR.drawable.lucide_ic_eraser
     "wait_for_text" -> LucideR.drawable.lucide_ic_clock
     "search_apps" -> LucideR.drawable.lucide_ic_search
+    "get_current_context" -> LucideR.drawable.lucide_ic_map_pin
     "launch_app" -> LucideR.drawable.lucide_ic_rocket
     "open_uri" -> LucideR.drawable.lucide_ic_external_link
     "browser_use" -> LucideR.drawable.lucide_ic_globe
@@ -829,6 +830,7 @@ private fun String.toToolLabel(): String = when (this) {
     "wait_for_text" -> "等待文本"
     "wait_for_package" -> "等待应用"
     "search_apps" -> "搜索应用"
+    "get_current_context" -> "时间与位置"
     "launch_app" -> "打开应用"
     "open_uri" -> "打开链接"
     "browser_use" -> "浏览网页"
