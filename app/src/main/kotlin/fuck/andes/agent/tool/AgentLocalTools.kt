@@ -16,10 +16,7 @@ import android.content.Intent
 import android.content.pm.ApplicationInfo
 import android.content.pm.PackageManager
 import android.net.Uri
-import android.os.Build
-import android.os.VibrationEffect
-import android.os.Vibrator
-import android.os.VibratorManager
+import fuck.andes.agent.overlay.AgentHapticFeedback
 import fuck.andes.agent.overlay.GestureIndicator
 import fuck.andes.config.Prefs
 import fuck.andes.core.AgentLogger
@@ -154,7 +151,7 @@ internal class AgentLocalTools(
             y = args.optInt("y"),
             coordinateSpace = args.optString("coordinate_space")
         )
-        vibrateLight()
+        AgentHapticFeedback.perform(context, AgentHapticFeedback.Type.TAP)
         showTap(point.x, point.y)
         return deviceController.tap(point.x, point.y)
     }
@@ -169,7 +166,7 @@ internal class AgentLocalTools(
             y = (y1 + y2) / 2,
             coordinateSpace = args.optString("coordinate_space")
         )
-        vibrateLight()
+        AgentHapticFeedback.perform(context, AgentHapticFeedback.Type.TAP)
         showTap(point.x, point.y)
         return deviceController.tap(point.x, point.y)
     }
@@ -178,7 +175,7 @@ internal class AgentLocalTools(
         val index = args.optInt("index", -1)
         val node = lastUiNodes.firstOrNull { it.index == index }
         if (node != null) {
-            vibrateLight()
+            AgentHapticFeedback.perform(context, AgentHapticFeedback.Type.TAP)
             showTap(node.centerX, node.centerY)
         }
         deviceController.tapElement(index).takeIf { it.isOkJson() }?.let { return it }
@@ -190,8 +187,9 @@ internal class AgentLocalTools(
         val index = args.optInt("index", -1)
         val node = lastUiNodes.firstOrNull { it.index == index }
         if (node != null) {
-            vibrateLight()
-            showTap(node.centerX, node.centerY)
+            val durationMs = args.optInt("duration_ms", 800)
+            AgentHapticFeedback.perform(context, AgentHapticFeedback.Type.LONG_PRESS)
+            showLongPress(node.centerX, node.centerY, durationMs)
         }
         deviceController.longPressElement(index).takeIf { it.isOkJson() }?.let { return it }
         if (node == null) return errorResult("NO_OBSERVATION", "未找到最近一次 observe_screen 的节点 index=$index")
@@ -204,9 +202,10 @@ internal class AgentLocalTools(
             y = args.optInt("y"),
             coordinateSpace = args.optString("coordinate_space")
         )
-        vibrateLight()
-        showTap(point.x, point.y)
-        return deviceController.longPress(point.x, point.y, args.optInt("duration_ms", 800))
+        val durationMs = args.optInt("duration_ms", 800)
+        AgentHapticFeedback.perform(context, AgentHapticFeedback.Type.LONG_PRESS)
+        showLongPress(point.x, point.y, durationMs)
+        return deviceController.longPress(point.x, point.y, durationMs)
     }
 
     private fun swipe(args: JSONObject): String {
@@ -221,7 +220,7 @@ internal class AgentLocalTools(
             coordinateSpace = args.optString("coordinate_space")
         )
         val durationMs = args.optInt("duration_ms", 500)
-        vibrateLight()
+        AgentHapticFeedback.perform(context, AgentHapticFeedback.Type.SWIPE)
         showSwipe(start.x, start.y, end.x, end.y, durationMs)
         return deviceController.swipe(
             start.x,
@@ -598,26 +597,12 @@ internal class AgentLocalTools(
 
     private data class ScreenPoint(val x: Int, val y: Int)
 
-    private fun vibrateLight() {
-        val vibrator = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
-            val manager = context.getSystemService(Context.VIBRATOR_MANAGER_SERVICE) as? VibratorManager
-            manager?.defaultVibrator
-        } else {
-            @Suppress("DEPRECATION")
-            context.getSystemService(Context.VIBRATOR_SERVICE) as? Vibrator
-        }
-        vibrator?.let {
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-                it.vibrate(VibrationEffect.createOneShot(100, VibrationEffect.DEFAULT_AMPLITUDE))
-            } else {
-                @Suppress("DEPRECATION")
-                it.vibrate(50)
-            }
-        }
-    }
-
     private fun showTap(x: Int, y: Int) {
         GestureIndicator.showTap(context, x, y)
+    }
+
+    private fun showLongPress(x: Int, y: Int, durationMs: Int) {
+        GestureIndicator.showLongPress(context, x, y, durationMs)
     }
 
     private fun showSwipe(x1: Int, y1: Int, x2: Int, y2: Int, durationMs: Int) {

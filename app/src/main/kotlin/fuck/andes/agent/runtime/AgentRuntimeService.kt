@@ -27,6 +27,7 @@ import androidx.savedstate.SavedStateRegistryOwner
 import androidx.savedstate.setViewTreeSavedStateRegistryOwner
 import fuck.andes.agent.accessibility.AgentAccessibilityService
 import fuck.andes.agent.model.AgentModelClient
+import fuck.andes.agent.overlay.AgentHapticFeedback
 import fuck.andes.agent.overlay.AgentOverlayBubble
 import fuck.andes.agent.overlay.AgentOverlayGlow
 import fuck.andes.agent.overlay.AgentOverlayOrb
@@ -178,24 +179,6 @@ internal class AgentRuntimeService : Service(), LifecycleOwner, SavedStateRegist
         }
     }
 
-    private fun vibrateNormal() {
-        val vibrator = if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.S) {
-            val manager = getSystemService(Context.VIBRATOR_MANAGER_SERVICE) as? android.os.VibratorManager
-            manager?.defaultVibrator
-        } else {
-            @Suppress("DEPRECATION")
-            getSystemService(Context.VIBRATOR_SERVICE) as? android.os.Vibrator
-        }
-        vibrator?.let {
-            if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.O) {
-                it.vibrate(android.os.VibrationEffect.createOneShot(100, android.os.VibrationEffect.DEFAULT_AMPLITUDE))
-            } else {
-                @Suppress("DEPRECATION")
-                it.vibrate(100)
-            }
-        }
-    }
-
     private fun startRun(request: AgentRuntimeWire.RunRequest) {
         activeRunController?.cancel()
         val runController = AgentRunController()
@@ -273,7 +256,10 @@ internal class AgentRuntimeService : Service(), LifecycleOwner, SavedStateRegist
                                     state.value = state.value.applyEvent(event)
                                     if (revealsForegroundOperation) {
                                         if (orbView == null) {
-                                            vibrateNormal()
+                                            AgentHapticFeedback.perform(
+                                                this@AgentRuntimeService,
+                                                AgentHapticFeedback.Type.RUN_STARTED,
+                                            )
                                         }
                                         ensureOverlayVisible()
                                     }

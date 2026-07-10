@@ -16,11 +16,29 @@ import android.view.WindowManager
 import android.view.animation.DecelerateInterpolator
 import android.view.animation.OvershootInterpolator
 import fuck.andes.agent.accessibility.AgentAccessibilityService
+import kotlin.math.min
 
 object GestureIndicator {
     private val mainHandler = Handler(Looper.getMainLooper())
+    private var activeIndicator: ActiveIndicator? = null
 
     fun showTap(context: Context, x: Int, y: Int) {
+        showPress(context, x, y, PressKind.TAP, holdDurationMs = TAP_HOLD_DURATION_MS)
+    }
+
+    fun showLongPress(context: Context, x: Int, y: Int, durationMs: Int) {
+        val holdDurationMs = (durationMs.toLong() - POP_IN_DURATION_MS - FADE_OUT_DURATION_MS)
+            .coerceIn(MIN_LONG_PRESS_HOLD_MS, MAX_LONG_PRESS_HOLD_MS)
+        showPress(context, x, y, PressKind.LONG_PRESS, holdDurationMs)
+    }
+
+    private fun showPress(
+        context: Context,
+        x: Int,
+        y: Int,
+        kind: PressKind,
+        holdDurationMs: Long,
+    ) {
         mainHandler.post {
             val service = AgentAccessibilityService.current()
             val overlayContext = service ?: context
@@ -31,10 +49,10 @@ object GestureIndicator {
             }
 
             val wm = overlayContext.getSystemService(Context.WINDOW_SERVICE) as? WindowManager ?: return@post
-            val indicatorView = TapIndicatorView(overlayContext)
+            val indicatorView = PressIndicatorView(overlayContext, kind, holdDurationMs)
 
             val density = overlayContext.resources.displayMetrics.density
-            val sizePx = (60f * density).toInt()
+            val sizePx = (INDICATOR_CONTAINER_SIZE_DP * density).toInt()
 
             val lp = WindowManager.LayoutParams(
                 sizePx,
@@ -51,14 +69,7 @@ object GestureIndicator {
                 this.y = y - sizePx / 2
             }
 
-            runCatching {
-                wm.addView(indicatorView, lp)
-                indicatorView.startAnimation {
-                    mainHandler.post {
-                        runCatching { wm.removeView(indicatorView) }
-                    }
-                }
-            }
+            attachIndicator(wm, indicatorView, lp)
         }
     }
 
@@ -90,19 +101,63 @@ object GestureIndicator {
                 this.y = 0
             }
 
-            runCatching {
-                wm.addView(indicatorView, lp)
-                indicatorView.startAnimation {
-                    mainHandler.post {
-                        runCatching { wm.removeView(indicatorView) }
-                    }
-                }
-            }
+            attachIndicator(wm, indicatorView, lp)
         }
     }
+
+    private fun attachIndicator(
+        windowManager: WindowManager,
+        view: AnimatedIndicatorView,
+        layoutParams: WindowManager.LayoutParams,
+    ) {
+        dismissActiveIndicator()
+        runCatching { windowManager.addView(view, layoutParams) }
+            .onSuccess {
+                val indicator = ActiveIndicator(windowManager, view)
+                activeIndicator = indicator
+                view.startIndicatorAnimation {
+                    mainHandler.post { finishIndicator(indicator) }
+                }
+            }
+    }
+
+    private fun dismissActiveIndicator() {
+        activeIndicator?.let(::finishIndicator)
+    }
+
+    private fun finishIndicator(indicator: ActiveIndicator) {
+        if (activeIndicator === indicator) {
+            activeIndicator = null
+        }
+        indicator.view.cancelIndicatorAnimation()
+        runCatching { indicator.windowManager.removeView(indicator.view) }
+    }
+
+    private class ActiveIndicator(
+        val windowManager: WindowManager,
+        val view: AnimatedIndicatorView,
+    )
+
+    private const val INDICATOR_CONTAINER_SIZE_DP = 60f
+    private const val POP_IN_DURATION_MS = 200L
+    private const val TAP_HOLD_DURATION_MS = 100L
+    private const val FADE_OUT_DURATION_MS = 180L
+    private const val MIN_LONG_PRESS_HOLD_MS = 240L
+    private const val MAX_LONG_PRESS_HOLD_MS = 620L
 }
 
-private class TapIndicatorView(context: Context) : View(context) {
+private enum class PressKind { TAP, LONG_PRESS }
+
+private abstract class AnimatedIndicatorView(context: Context) : View(context) {
+    abstract fun startIndicatorAnimation(onFinished: () -> Unit)
+    abstract fun cancelIndicatorAnimation()
+}
+
+private class PressIndicatorView(
+    context: Context,
+    private val kind: PressKind,
+    private val holdDurationMs: Long,
+) : AnimatedIndicatorView(context) {
     private val paint = Paint(Paint.ANTI_ALIAS_FLAG)
     private val density = resources.displayMetrics.density
 
@@ -110,8 +165,7 @@ private class TapIndicatorView(context: Context) : View(context) {
         paint.color = 0xFF2879FB.toInt() // Premium tech blue
     }
 
-    fun startAnimation(onFinished: () -> Unit) {
-        // 抄 OpenOmniBot ClickIndicator：Overshoot 弹入 → 停顿 → Decelerate 淡出
+    override fun startIndicatorAnimation(onFinished: () -> Unit) {
         alpha = 0f
         scaleX = 0.5f
         scaleY = 0.5f
@@ -124,8 +178,10 @@ private class TapIndicatorView(context: Context) : View(context) {
             .withEndAction {
                 animate()
                     .alpha(0f)
-                    .setDuration(200L)
-                    .setStartDelay(100L)
+                    .scaleX(if (kind == PressKind.LONG_PRESS) 1.12f else 1.06f)
+                    .scaleY(if (kind == PressKind.LONG_PRESS) 1.12f else 1.06f)
+                    .setDuration(180L)
+                    .setStartDelay(holdDurationMs)
                     .setInterpolator(DecelerateInterpolator())
                     .withEndAction { onFinished() }
                     .start()
@@ -133,22 +189,36 @@ private class TapIndicatorView(context: Context) : View(context) {
             .start()
     }
 
+    override fun cancelIndicatorAnimation() {
+        animate().cancel()
+    }
+
     override fun onDraw(canvas: Canvas) {
         super.onDraw(canvas)
         val cx = width / 2f
         val cy = height / 2f
-        val maxRadius = Math.min(cx, cy) * 0.8f
+        val ringRadius = 20f * density
 
-        // 实心内圈
+        // 与目标控件保持清晰的空心边界，内部只给一层很轻的落点着色。
         paint.style = Paint.Style.FILL
-        paint.alpha = (0.4f * 255).toInt()
-        canvas.drawCircle(cx, cy, maxRadius * 0.5f, paint)
+        paint.alpha = if (kind == PressKind.LONG_PRESS) 0x38 else 0x2A
+        canvas.drawCircle(cx, cy, ringRadius, paint)
 
-        // 描边外圈
         paint.style = Paint.Style.STROKE
-        paint.strokeWidth = 3f * density
+        paint.strokeWidth = if (kind == PressKind.LONG_PRESS) 2.5f * density else 2f * density
         paint.alpha = 255
-        canvas.drawCircle(cx, cy, maxRadius, paint)
+        canvas.drawCircle(cx, cy, ringRadius, paint)
+
+        paint.style = Paint.Style.FILL
+        paint.alpha = 230
+        canvas.drawCircle(cx, cy, if (kind == PressKind.LONG_PRESS) 4f * density else 3f * density, paint)
+
+        if (kind == PressKind.LONG_PRESS) {
+            paint.style = Paint.Style.STROKE
+            paint.strokeWidth = density
+            paint.alpha = 110
+            canvas.drawCircle(cx, cy, 25f * density, paint)
+        }
     }
 }
 
@@ -159,16 +229,18 @@ private class SwipeIndicatorView(
     private val endX: Float,
     private val endY: Float,
     private val durationMs: Int
-) : View(context) {
+) : AnimatedIndicatorView(context) {
     private val paint = Paint(Paint.ANTI_ALIAS_FLAG)
     private var progress = 0f
     private var alphaVal = 1f
+    private var animator: AnimatorSet? = null
 
     init {
         paint.color = 0xFF2879FB.toInt() // Premium tech blue
+        paint.strokeCap = Paint.Cap.ROUND
     }
 
-    fun startAnimation(onFinished: () -> Unit) {
+    override fun startIndicatorAnimation(onFinished: () -> Unit) {
         val progressAnimator = ValueAnimator.ofFloat(0f, 1f).apply {
             duration = durationMs.coerceAtLeast(300).toLong()
             addUpdateListener { animation ->
@@ -177,14 +249,13 @@ private class SwipeIndicatorView(
             }
         }
         val alphaAnimator = ValueAnimator.ofFloat(1f, 0f).apply {
-            duration = 200
-            startDelay = progressAnimator.duration
+            duration = 160
             addUpdateListener { animation ->
                 alphaVal = animation.animatedValue as Float
                 invalidate()
             }
         }
-        AnimatorSet().apply {
+        animator = AnimatorSet().apply {
             playSequentially(progressAnimator, alphaAnimator)
             addListener(object : AnimatorListenerAdapter() {
                 override fun onAnimationEnd(animation: Animator) {
@@ -195,6 +266,12 @@ private class SwipeIndicatorView(
         }
     }
 
+    override fun cancelIndicatorAnimation() {
+        animator?.removeAllListeners()
+        animator?.cancel()
+        animator = null
+    }
+
     override fun onDraw(canvas: Canvas) {
         super.onDraw(canvas)
         val density = resources.displayMetrics.density
@@ -203,21 +280,27 @@ private class SwipeIndicatorView(
         val curX = startX + (endX - startX) * progress
         val curY = startY + (endY - startY) * progress
 
-        // Draw track line
-        paint.style = Paint.Style.STROKE
-        paint.strokeWidth = 4f * density
-        paint.alpha = (alphaVal * 0.25f * 255).toInt()
-        canvas.drawLine(startX, startY, endX, endY, paint)
-
-        // Draw swipe head solid circle
-        paint.style = Paint.Style.FILL
-        paint.alpha = (alphaVal * 255).toInt()
-        canvas.drawCircle(curX, curY, 12f * density, paint)
-
-        // Draw swipe head outer ripple ring
+        // 先画极淡的路径预告，再让实线和指尖同步前进，避免轨迹看起来比手势先发生。
         paint.style = Paint.Style.STROKE
         paint.strokeWidth = 2f * density
-        paint.alpha = (alphaVal * 0.4f * 255).toInt()
-        canvas.drawCircle(curX, curY, 20f * density, paint)
+        paint.alpha = (alphaVal * 0.12f * 255).toInt()
+        canvas.drawLine(startX, startY, endX, endY, paint)
+
+        paint.strokeWidth = 3f * density
+        paint.alpha = (alphaVal * 0.62f * 255).toInt()
+        canvas.drawLine(startX, startY, curX, curY, paint)
+
+        paint.style = Paint.Style.FILL
+        paint.alpha = (alphaVal * 0.9f * 255).toInt()
+        canvas.drawCircle(curX, curY, 7f * density, paint)
+
+        paint.style = Paint.Style.STROKE
+        paint.strokeWidth = 1.5f * density
+        paint.alpha = (alphaVal * 0.48f * 255).toInt()
+        canvas.drawCircle(curX, curY, 13f * density, paint)
+
+        paint.style = Paint.Style.FILL
+        paint.alpha = (alphaVal * 0.5f * 255).toInt()
+        canvas.drawCircle(startX, startY, min(4f * density, 4f * density * (1f - progress) + density), paint)
     }
 }
