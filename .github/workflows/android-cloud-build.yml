@@ -33,26 +33,26 @@ jobs:
           distribution: temurin
           java-version: '25'
 
-      - name: Set up Gradle
+      - name: Setup Gradle
         uses: gradle/actions/setup-gradle@v4
 
-      - name: Set up Android SDK
+      - name: Setup Android SDK
         uses: android-actions/setup-android@v3
 
-      - name: Accept Android SDK licenses
-        run: yes | sdkmanager --licenses >/dev/null || true
+      - name: Accept SDK licenses
+        run: yes | $ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager --licenses >/dev/null || true
 
-      - name: Install Android SDK packages
+      - name: Install SDK packages
         run: |
-          sdkmanager --channel=3 \
-            "platform-tools" \
-            "platforms;android-37.0" \
-            "build-tools;37.0.0"
+          $ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager --channel=3 \
+            "platforms;android-37" \
+            "build-tools;37.0.0" \
+            "platform-tools"
 
       - name: Build APKs
         run: |
           chmod +x ./gradlew
-          ./gradlew assembleDebug assembleRelease --stacktrace --no-daemon
+          ./gradlew assembleDebug assembleRelease --stacktrace --no-daemon -Pandroid.injected.invoked.from.ide=false
 
       - name: Sign release APK with CI key
         env:
@@ -67,17 +67,15 @@ jobs:
             -alias "$KEY_ALIAS" \
             -keypass "$KEY_PASSWORD" \
             -dname "CN=Eta CI, OU=CI, O=GitHub Actions, L=Cloud, S=Cloud, C=US" \
-            -keyalg RSA \
-            -keysize 2048 \
-            -validity 36500
-          "$ANDROID_HOME/build-tools/37.0.0/apksigner" sign \
+            -keyalg RSA -keysize 2048 -validity 36500
+          apksigner sign \
             --ks "$KEYSTORE_PATH" \
             --ks-key-alias "$KEY_ALIAS" \
             --ks-pass pass:"$KEYSTORE_PASSWORD" \
             --key-pass pass:"$KEY_PASSWORD" \
             --out app/build/outputs/apk/release/app-release-ci-signed.apk \
             app/build/outputs/apk/release/app-release-unsigned.apk
-          "$ANDROID_HOME/build-tools/37.0.0/apksigner" verify app/build/outputs/apk/release/app-release-ci-signed.apk
+          apksigner verify app/build/outputs/apk/release/app-release-ci-signed.apk
 
       - name: Upload debug APK
         uses: actions/upload-artifact@v4
