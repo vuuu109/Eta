@@ -30,16 +30,26 @@ jobs:
       - name: Accept licenses
         run: yes | $ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager --licenses >/dev/null || true
 
-      - name: List available Android SDK platforms
+      - name: Check available build-tools
         run: |
-          echo "=== Channel 3 ==="
-          $ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager --channel=3 --list 2>&1 | grep "android-3" | head -20 || echo "No android-3x found"
-          echo "=== All platforms ==="
-          $ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager --list 2>&1 | grep "platforms;" | head -30
+          echo "=== Build Tools ==="
+          $ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager --channel=3 --list 2>&1 | grep "build-tools;" | head -20
 
       - name: Install SDK packages
         run: |
           $ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager --channel=3 \
-            "platforms;android-37" \
-            "build-tools;36.0.0" \
+            "platforms;android-37.0" \
+            "build-tools;37.0.0" \
             "platform-tools"
+
+      - name: Build APK
+        run: |
+          chmod +x ./gradlew
+          ./gradlew assembleDebug --stacktrace --no-daemon -Pandroid.injected.invoked.from.ide=false
+
+      - name: Upload debug APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: eta-debug-apk
+          path: app/build/outputs/apk/debug/app-debug.apk
+          if-no-files-found: error
