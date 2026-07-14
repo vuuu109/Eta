@@ -45,13 +45,14 @@ jobs:
           chmod +x ./gradlew
           ./gradlew assembleDebug assembleRelease --stacktrace --no-daemon -Pandroid.injected.invoked.from.ide=false
 
-      - name: Sign release APK
+      - name: Sign release APK with CI key
         env:
           KEYSTORE_PATH: ${{ runner.temp }}/eta-ci.keystore
           KEYSTORE_PASSWORD: android
           KEY_ALIAS: eta-ci
           KEY_PASSWORD: android
         run: |
+          APKSIGNER="$ANDROID_HOME/build-tools/37.0.0/apksigner"
           keytool -genkeypair -v \
             -keystore "$KEYSTORE_PATH" \
             -storepass "$KEYSTORE_PASSWORD" \
@@ -59,14 +60,14 @@ jobs:
             -keypass "$KEY_PASSWORD" \
             -dname "CN=Eta CI, OU=CI, O=GitHub Actions, L=Cloud, S=Cloud, C=US" \
             -keyalg RSA -keysize 2048 -validity 36500
-          apksigner sign \
+          "$APKSIGNER" sign \
             --ks "$KEYSTORE_PATH" \
             --ks-key-alias "$KEY_ALIAS" \
             --ks-pass pass:"$KEYSTORE_PASSWORD" \
             --key-pass pass:"$KEY_PASSWORD" \
             --out app/build/outputs/apk/release/app-release-ci-signed.apk \
             app/build/outputs/apk/release/app-release-unsigned.apk
-          apksigner verify app/build/outputs/apk/release/app-release-ci-signed.apk
+          "$APKSIGNER" verify app/build/outputs/apk/release/app-release-ci-signed.apk
 
       - name: Upload debug APK
         uses: actions/upload-artifact@v4
